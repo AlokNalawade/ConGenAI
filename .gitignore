@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Test scripts & output files
+test_*.py
+apps/api/test_*.py
+*.log
+*.jpg
+*.png
+*.mp4
+*.wav
+*.mp3
+*.out
+*.jsonl
+
+# Assets & output data directories
+data/
+data/*
+apps/api/data/
+apps/api/server.log
+apps/api/*.jpg
+apps/api/*.mp4
+apps/api/*.wav
+apps/api/*.mp3
+
+# macOS & OS Metadata
+.DS_Store
+Thumbs.db
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp

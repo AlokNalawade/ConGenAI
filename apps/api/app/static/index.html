@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Content Factory</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="ri-blaze-fill"></i>
+                <h2>ConGen AI</h2>
+            </div>
+            <nav>
+                <a href="#" id="nav-dashboard" class="active" onclick="switchTab(this, 'dashboard')"><i class="ri-dashboard-line"></i> Dashboard</a>
+                <a href="#" id="nav-ideas" onclick="switchTab(this, 'ideas')"><i class="ri-lightbulb-line"></i> Ideas</a>
+                <a href="#" id="nav-pipeline" onclick="switchTab(this, 'pipeline')"><i class="ri-kanban-view"></i> Pipeline</a>
+                <a href="#" id="nav-videos" onclick="switchTab(this, 'videos')"><i class="ri-video-line"></i> Videos</a>
+                <a href="#" id="nav-settings" onclick="switchTab(this, 'settings')"><i class="ri-settings-4-line"></i> Settings</a>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header>
+                <div class="search-bar">
+                    <i class="ri-search-line"></i>
+                    <input type="text" id="globalSearch" placeholder="Search ideas, videos, scripts..." oninput="onSearchInput(this.value)">
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-primary" onclick="toggleModal('ideaModal')">
+                        <i class="ri-add-line"></i> New Idea
+                    </button>
+                    <div class="user-profile">
+                        <img src="https://ui-avatars.com/api/?name=User&background=6c5ce7&color=fff" alt="User">
+                    </div>
+                </div>
+            </header>
+
+            <!-- TAB 1: DASHBOARD VIEW -->
+            <div class="dashboard-content" id="view-dashboard">
+                <!-- Stats Row -->
+                <div class="stats-grid">
+                    <div class="stat-card glass">
+                        <div class="stat-icon" style="background: rgba(108, 92, 231, 0.2); color: #6c5ce7;">
+                            <i class="ri-lightbulb-flash-line"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3>Raw Ideas</h3>
+                            <h2 id="stat-ideas">0</h2>
+                        </div>
+                    </div>
+                    <div class="stat-card glass">
+                        <div class="stat-icon" style="background: rgba(0, 184, 148, 0.2); color: #00b894;">
+                            <i class="ri-loader-4-line"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3>In Production</h3>
+                            <h2 id="stat-production">0</h2>
+                        </div>
+                    </div>
+                    <div class="stat-card glass">
+                        <div class="stat-icon" style="background: rgba(253, 203, 110, 0.2); color: #fdcb6e;">
+                            <i class="ri-video-check-line"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3>Completed Videos</h3>
+                            <h2 id="stat-completed">0</h2>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pipeline Kanban -->
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+                    <h2 class="section-title" style="margin-bottom: 0;">Production Pipeline</h2>
+                    <div id="pipeline-status-banner" style="display: none; align-items: center; gap: 10px; padding: 8px 18px; background: rgba(108, 92, 231, 0.15); border: 1px solid rgba(162, 155, 254, 0.4); border-radius: 100px; color: #a29bfe; font-size: 13px; font-weight: 600; box-shadow: 0 4px 15px rgba(108, 92, 231, 0.2);">
+                        <i class="ri-loader-4-line spin" style="font-size: 16px; color: #00b894;"></i>
+                        <span id="pipeline-status-text">Processing E2E video generation...</span>
+                    </div>
+                </div>
+                
+                <div class="kanban-board">
+                    <!-- Column: Planning -->
+                    <div class="kanban-column">
+                        <div class="column-header">
+                            <h3><i class="ri-draft-line"></i> Planning</h3>
+                            <span class="count" id="count-planning">0</span>
+                        </div>
+                        <div class="column-content" id="col-planning"></div>
+                    </div>
+
+                    <!-- Column: Scripting -->
+                    <div class="kanban-column">
+                        <div class="column-header">
+                            <h3><i class="ri-file-text-line"></i> Scripting</h3>
+                            <span class="count" id="count-scripting">0</span>
+                        </div>
+                        <div class="column-content" id="col-scripting"></div>
+                    </div>
+
+                    <!-- Column: Media Generation -->
+                    <div class="kanban-column">
+                        <div class="column-header">
+                            <h3><i class="ri-image-line"></i> Media & Assets</h3>
+                            <span class="count" id="count-media">0</span>
+                        </div>
+                        <div class="column-content" id="col-media"></div>
+                    </div>
+
+                    <!-- Column: Assembly -->
+                    <div class="kanban-column">
+                        <div class="column-header">
+                            <h3><i class="ri-film-line"></i> Assembly</h3>
+                            <span class="count" id="count-assembly">0</span>
+                        </div>
+                        <div class="column-content" id="col-assembly"></div>
+                    </div>
+                </div>
+
+                <!-- Bottom Live Terminal Pane -->
+                <div class="terminal-content" id="terminal-view" style="margin-top: 30px;">
+                    <div class="terminal-window">
+                        <div class="terminal-header">
+                            <div class="terminal-dots">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <div class="terminal-title">Live Agent Terminal</div>
+                        </div>
+                        <div class="terminal-body" id="terminal-logs">
+                            <div class="log-line system"><span class="time"></span><span class="agent">[System]</span><span class="text"> Connecting to log stream...</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: IDEAS LIBRARY VIEW -->
+            <div class="dashboard-content" id="view-ideas" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                    <div>
+                        <h2 class="section-title" style="margin-bottom: 4px;">Content Ideas Library</h2>
+                        <p style="color: var(--text-muted); font-size: 14px;">Manage and convert your content concepts into automated videos.</p>
+                    </div>
+                    <button class="btn btn-primary" onclick="toggleModal('ideaModal')">
+                        <i class="ri-add-line"></i> Create New Idea
+                    </button>
+                </div>
+
+                <div id="ideas-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+                    <!-- Dynamically populated via JS -->
+                </div>
+            </div>
+
+            <!-- TAB 3: PIPELINE VIEW -->
+            <div class="dashboard-content" id="view-pipeline" style="display: none;">
+                <div style="margin-bottom: 24px;">
+                    <h2 class="section-title" style="margin-bottom: 4px;">Full Kanban Pipeline</h2>
+                    <p style="color: var(--text-muted); font-size: 14px;">Track live progress across all production stages.</p>
+                </div>
+                <div class="kanban-board" id="full-kanban-board">
+                    <!-- Cloned or rendered Kanban -->
+                </div>
+            </div>
+
+            <!-- TAB 4: VIDEOS GALLERY VIEW -->
+            <div class="dashboard-content" id="view-videos" style="display: none;">
+                <div style="margin-bottom: 24px;">
+                    <h2 class="section-title" style="margin-bottom: 4px;">Generated Videos Gallery</h2>
+                    <p style="color: var(--text-muted); font-size: 14px;">Browse, play, and download your rendered short-form videos.</p>
+                </div>
+
+                <div id="videos-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px;">
+                    <!-- Dynamically populated via JS -->
+                </div>
+            </div>
+
+            <!-- TAB 5: SETTINGS VIEW -->
+            <div class="dashboard-content" id="view-settings" style="display: none;">
+                <div style="margin-bottom: 24px;">
+                    <h2 class="section-title" style="margin-bottom: 4px;">System & AI Agent Settings</h2>
+                    <p style="color: var(--text-muted); font-size: 14px;">Configure local LLMs, TTS voice engines, and system storage.</p>
+                </div>
+
+                <div class="glass" style="max-width: 650px; padding: 28px; border-radius: 20px;">
+                    <div class="form-group">
+                        <label><i class="ri-server-line"></i> Local Ollama Endpoint</label>
+                        <input type="text" value="http://localhost:11434/v1" readonly style="background: rgba(0,0,0,0.4);">
+                    </div>
+                    <div class="form-group">
+                        <label><i class="ri-mic-line"></i> Default Text-to-Speech Engine</label>
+                        <select id="settingsVoice">
+                            <option value="en-US-ChristopherNeural">Microsoft Edge TTS (en-US-ChristopherNeural)</option>
+                            <option value="en-US-AnaNeural">Microsoft Edge TTS (en-US-AnaNeural)</option>
+                            <option value="en-US-GuyNeural">Microsoft Edge TTS (en-US-GuyNeural)</option>
+                            <option value="gtts">Google TTS (gTTS Fallback)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="ri-image-line"></i> Video Frame Resolution</label>
+                        <select>
+                            <option value="1080x1920">1080x1920 (Vertical 9:16 - Shorts / TikTok / Reels)</option>
+                        </select>
+                    </div>
+                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h4 style="color: #ff7675; margin-bottom: 4px;">Data Reset</h4>
+                            <p style="font-size: 12px; color: var(--text-muted);">Clear all cached ideas, scripts, assets, and database records.</p>
+                        </div>
+                        <button class="btn" onclick="resetAllData()" style="background: rgba(214, 48, 49, 0.2); border: 1px solid rgba(214, 48, 49, 0.5); color: #ff7675;">
+                            <i class="ri-delete-bin-line"></i> Reset All Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <!-- New Idea Modal -->
+    <div class="modal-overlay" id="ideaModal">
+        <div class="modal glass">
+            <div class="modal-header">
+                <h2>Create New Idea</h2>
+                <button class="close-btn" onclick="toggleModal('ideaModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="ideaForm">
+                    <div class="form-group">
+                        <label>Title</label>
+                        <input type="text" id="ideaTitle" required placeholder="Catchy title...">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea id="ideaDesc" rows="3" placeholder="What's this video about?"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Platform</label>
+                            <select id="ideaPlatform">
+                                <option value="Shorts">YouTube Shorts</option>
+                                <option value="Reels">Instagram Reels</option>
+                                <option value="TikTok">TikTok</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Content Type</label>
+                            <select id="ideaType">
+                                <option value="Educational">Educational</option>
+                                <option value="Entertainment">Entertainment</option>
+                                <option value="Vlog">Vlog</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Model Selection per Task -->
+                    <div style="margin-top: 16px; padding: 16px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: #a29bfe; font-size: 13px; font-weight: 600;">
+                            <i class="ri-cpu-line"></i> Select LLM Model per Agent Task
+                        </div>
+                        <div class="form-row" style="margin-bottom: 0; gap: 10px;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label style="font-size: 11px;">🔬 Research</label>
+                                <select id="modelResearch" class="model-select" style="font-size: 12px; padding: 8px 10px;">
+                                    <option value="llama3:latest">llama3:latest</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label style="font-size: 11px;">📝 Scriptwriter</label>
+                                <select id="modelScript" class="model-select" style="font-size: 12px; padding: 8px 10px;">
+                                    <option value="llama3:latest">llama3:latest</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label style="font-size: 11px;">🎬 Scene Planner</label>
+                                <select id="modelScene" class="model-select" style="font-size: 12px; padding: 8px 10px;">
+                                    <option value="llama3:latest">llama3:latest</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions" style="display: flex; gap: 10px; margin-top: 24px;">
+                        <button type="submit" class="btn" style="flex: 1; padding: 12px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; color: #fff; font-weight: 500; cursor: pointer;">
+                            <i class="ri-draft-line"></i> Save Idea
+                        </button>
+                        <button type="button" id="e2eCreateBtn" onclick="submitEndToEnd()" class="btn" style="flex: 1.5; padding: 12px; background: linear-gradient(135deg, #00b894, #00cec9); border: none; border-radius: 10px; color: #fff; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 184, 148, 0.4);">
+                            <i class="ri-rocket-fill"></i> Auto Create (End-to-End)
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Player Modal -->
+    <div class="modal-overlay" id="videoModal">
+        <div class="modal glass" style="max-width: 450px; text-align: center;">
+            <div class="modal-header">
+                <h2>Generated Video Preview</h2>
+                <button class="close-btn" onclick="closeVideoModal()"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body" style="padding-top: 10px;">
+                <div style="position: relative; width: 100%; border-radius: 16px; overflow: hidden;">
+                    <video id="videoPlayer" controls playsinline preload="auto" style="width: 100%; max-height: 480px; border-radius: 16px; background: #000; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: block;"></video>
+                    <button id="bigPlayBtn" onclick="userStartPlay()" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 14px 24px; background: linear-gradient(135deg, #00b894, #00cec9); color: white; border: none; border-radius: 100px; font-weight: 700; font-size: 15px; cursor: pointer; box-shadow: 0 8px 25px rgba(0, 184, 148, 0.6); display: flex; align-items: center; gap: 8px; z-index: 10; transition: transform 0.2s;">
+                        <i class="ri-volume-up-fill" style="font-size: 22px;"></i> Play Video with Sound
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
