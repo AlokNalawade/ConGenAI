@@ -18,7 +18,7 @@ class TTSService:
         # Primary: edge-tts
         try:
             communicate = edge_tts.Communicate(text, v)
-            await communicate.save(filepath)
+            await asyncio.wait_for(communicate.save(filepath), timeout=5.0)
             if os.path.exists(filepath) and os.path.getsize(filepath) > 500:
                 print(f"Edge-TTS synthesis success: {filepath} ({os.path.getsize(filepath)} bytes)")
                 return filepath

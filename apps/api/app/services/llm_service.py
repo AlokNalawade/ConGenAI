@@ -83,6 +83,12 @@ class LLMService:
             return content
         except Exception as e:
             print(f"Error calling LLM: {str(e)}")
+            enable_mock = os.getenv("ENABLE_MOCK_AI", "true").lower() in ("true", "1", "yes")
+            if not enable_mock:
+                err_msg = f"LLM generation failed for model {model_to_use} and ENABLE_MOCK_AI is false: {str(e)}"
+                await log_manager.broadcast(f"❌ {err_msg}", agent="LLMService")
+                raise RuntimeError(err_msg) from e
+                
             mock_res = self._get_mock_response(system_prompt, json_mode)
             mock_str = json.dumps(mock_res, indent=2) if isinstance(mock_res, dict) else str(mock_res)
             

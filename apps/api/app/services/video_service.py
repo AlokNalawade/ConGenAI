@@ -10,7 +10,7 @@ class VideoService:
         os.makedirs(self.output_dir, exist_ok=True)
         self.ffmpeg_cmd = shutil.which("ffmpeg") or imageio_ffmpeg.get_ffmpeg_exe()
 
-    def create_scene_video(self, image_path: str, audio_path: str, text: str = None) -> str:
+    def create_scene_video(self, image_path: str, audio_path: str, text: str = None, duration: float = None) -> str:
         filename = f"scene_{uuid.uuid4()}.mp4"
         filepath = os.path.join(self.output_dir, filename)
         
@@ -19,19 +19,26 @@ class VideoService:
             input_image = ffmpeg.input(image_path, loop=1)
             input_audio = ffmpeg.input(audio_path)
             
+            output_kwargs = {
+                'vcodec': 'libx264',
+                'acodec': 'aac',
+                'ar': '44100',
+                'ac': 2,
+                'r': 25,
+                'af': 'volume=1.5',
+                'pix_fmt': 'yuv420p',
+                'vf': 'scale=1080:1920,format=yuv420p'
+            }
+            if duration and float(duration) > 0:
+                output_kwargs['t'] = float(duration)
+            else:
+                output_kwargs['shortest'] = None
+            
             stream = ffmpeg.output(
                 input_image.video,
                 input_audio.audio,
                 filepath,
-                vcodec='libx264',
-                acodec='aac',
-                ar='44100',
-                ac=2,
-                r=25,
-                af='volume=1.5',
-                pix_fmt='yuv420p',
-                vf='scale=1080:1920,format=yuv420p',
-                shortest=None
+                **output_kwargs
             )
             ffmpeg.run(stream, cmd=self.ffmpeg_cmd, overwrite_output=True, capture_stdout=True, capture_stderr=True)
             

@@ -121,6 +121,8 @@ class Asset(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
     scene_id = Column(UUID(as_uuid=True), ForeignKey("scenes.id"), nullable=True)
+    parent_asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"), nullable=True)
+    version = Column(Integer, default=1)
     asset_type = Column(String)
     filename = Column(String)
     path = Column(String)
@@ -134,3 +136,93 @@ class Asset(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     content = relationship("Content", back_populates="assets")
     scene = relationship("Scene", back_populates="assets")
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
+    stage = Column(String)
+    agent = Column(String)
+    provider = Column(String)
+    model = Column(String)
+    prompt_version = Column(Integer, default=1)
+    duration_seconds = Column(Float)
+    status = Column(String)
+    error = Column(String, nullable=True)
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
+    cost = Column(Float, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Source(Base):
+    __tablename__ = "sources"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    research_id = Column(UUID(as_uuid=True), ForeignKey("research.id"))
+    url = Column(String)
+    title = Column(String)
+    publisher = Column(String)
+    published_at = Column(String, nullable=True)
+    retrieved_at = Column(DateTime(timezone=True), server_default=func.now())
+    credibility = Column(Float, default=1.0)
+    evidence_items = relationship("Evidence", back_populates="source")
+
+class Evidence(Base):
+    __tablename__ = "evidence"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.id"))
+    claim = Column(String)
+    supporting_text = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    source = relationship("Source", back_populates="evidence_items")
+
+class ContentDNA(Base):
+    __tablename__ = "content_dna"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
+    topic = Column(String)
+    niche = Column(String)
+    hook_type = Column(String)
+    video_length = Column(Float)
+    script_structure = Column(String)
+    cta = Column(String)
+    visual_style = Column(String)
+    voice = Column(String)
+    views = Column(Integer, default=0)
+    retention = Column(Float, default=0.0)
+    likes = Column(Integer, default=0)
+    shares = Column(Integer, default=0)
+    comments = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Publication(Base):
+    __tablename__ = "publications"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
+    platform = Column(String)
+    post_url = Column(String, nullable=True)
+    status = Column(String, default="scheduled")
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class AnalyticsSnapshot(Base):
+    __tablename__ = "analytics_snapshots"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    publication_id = Column(UUID(as_uuid=True), ForeignKey("publications.id"))
+    views = Column(Integer, default=0)
+    watch_time = Column(Float, default=0.0)
+    likes = Column(Integer, default=0)
+    comments = Column(Integer, default=0)
+    shares = Column(Integer, default=0)
+    retention_rate = Column(Float, default=0.0)
+    recorded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Experiment(Base):
+    __tablename__ = "experiments"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
+    name = Column(String)
+    variant_a = Column(JSON)
+    variant_b = Column(JSON)
+    winner = Column(String, nullable=True)
+    status = Column(String, default="running")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -1,5 +1,6 @@
 from app.agents.base import BaseAgent
 from app.core.logging import log_manager
+from app.models.ai_contracts import ScenePlan, validate_ai_response
 import json
 
 class SceneAgent(BaseAgent):
@@ -23,9 +24,11 @@ Return ONLY valid JSON with this structure:
 }
 """
 
-    async def plan_scenes(self, script_data: dict) -> dict:
+    async def plan_scenes(self, script_data: dict) -> ScenePlan:
         await log_manager.broadcast("Breaking script down into scenes...", agent="SceneAgent")
         user_prompt = f"Script Data: {json.dumps(script_data)}"
-        result = await self.run(self.SYSTEM_PROMPT, user_prompt, json_mode=True)
-        await log_manager.broadcast(f"Planned {len(result.get('scenes', []))} scenes successfully.", agent="SceneAgent")
-        return result
+        raw_res = await self.run(self.SYSTEM_PROMPT, user_prompt, json_mode=True)
+        validated = validate_ai_response(raw_res, ScenePlan)
+        await log_manager.broadcast(f"Planned {len(validated.scenes)} scenes successfully.", agent="SceneAgent")
+        return validated
+

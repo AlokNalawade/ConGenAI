@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Content Factory</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="index.css?v=2.0.0">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
 </head>
 <body>
@@ -117,22 +117,6 @@
                         <div class="column-header">
                             <h3><i class="ri-film-line"></i> Assembly</h3>
                             <span class="count" id="count-assembly">0</span>
-                        </div>
-                        <div class="column-content" id="col-assembly"></div>
-                    </div>
-                </div>
-
-                <!-- Bottom Live Terminal Pane -->
-                <div class="terminal-content" id="terminal-view" style="margin-top: 30px;">
-                    <div class="terminal-window">
-                        <div class="terminal-header">
-                            <div class="terminal-dots">
-                                <span></span><span></span><span></span>
-                            </div>
-                            <div class="terminal-title">Live Agent Terminal</div>
-                        </div>
-                        <div class="terminal-body" id="terminal-logs">
-                            <div class="log-line system"><span class="time"></span><span class="agent">[System]</span><span class="text"> Connecting to log stream...</span></div>
                         </div>
                     </div>
                 </div>
@@ -314,6 +298,123 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <!-- Human-In-The-Loop (HITL) Review Modal -->
+    <div class="modal-overlay" id="hitlModal">
+        <div class="modal glass" style="max-width: 840px; width: 90vw;">
+            <div class="modal-header">
+                <div>
+                    <h2 id="hitlTitle" style="font-size: 20px;">Human-in-the-Loop Content Inspector</h2>
+                    <p id="hitlSubtitle" style="font-size: 13px; color: var(--text-muted);">Review agent outputs, quality metrics, and approve for publishing.</p>
+                </div>
+                <button class="close-btn" onclick="toggleModal('hitlModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div style="display: grid; grid-template-columns: 320px 1fr; gap: 20px;">
+                    <!-- Left: Video Preview & Status -->
+                    <div>
+                        <div style="border-radius: 14px; overflow: hidden; background: #000; margin-bottom: 12px;">
+                            <video id="hitlVideoPlayer" controls playsinline style="width: 100%; max-height: 380px; display: block;"></video>
+                        </div>
+                        <div id="hitlQualityBadge" style="padding: 10px; border-radius: 10px; background: rgba(0, 184, 148, 0.15); border: 1px solid rgba(0, 184, 148, 0.3); text-align: center; color: #00b894; font-weight: 600; font-size: 13px; margin-bottom: 12px;">
+                            <i class="ri-checkbox-circle-fill"></i> Quality Score: <span id="hitlScore">--</span>/100
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <button id="hitlApproveBtn" onclick="hitlApprove()" class="btn btn-primary btn-block" style="background: linear-gradient(135deg, #00b894, #00cec9);">
+                                <i class="ri-rocket-line"></i> Approve & Publish
+                            </button>
+                            <button id="hitlResumeBtn" onclick="hitlResume()" class="btn btn-block" style="background: rgba(162, 155, 254, 0.2); color: #a29bfe; border: 1px solid rgba(162, 155, 254, 0.4);">
+                                <i class="ri-play-circle-line"></i> Resume Pipeline
+                            </button>
+                            <button id="hitlRegenBtn" onclick="hitlRegenerate()" class="btn btn-block" style="background: rgba(255, 118, 117, 0.15); color: #ff7675; border: 1px solid rgba(255, 118, 117, 0.3);">
+                                <i class="ri-refresh-line"></i> Regenerate Content
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Right: Tabbed Details (Script, Scenes, Telemetry) -->
+                    <div>
+                        <div style="display: flex; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 14px;">
+                            <button class="term-icon-btn active" id="hitlTabScriptBtn" onclick="switchHitlTab('script')"><i class="ri-file-text-line"></i> Script</button>
+                            <button class="term-icon-btn" id="hitlTabScenesBtn" onclick="switchHitlTab('scenes')"><i class="ri-film-line"></i> Scenes</button>
+                            <button class="term-icon-btn" id="hitlTabTelemetryBtn" onclick="switchHitlTab('telemetry')"><i class="ri-dashboard-3-line"></i> Telemetry</button>
+                        </div>
+
+                        <!-- Script Content -->
+                        <div id="hitlTabScript" class="hitl-tab-content">
+                            <div style="margin-bottom: 10px;">
+                                <label style="font-size: 11px; font-weight: 700; color: #a29bfe;">HOOK (First 3 Seconds)</label>
+                                <div id="hitlHookText" style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 13px; margin-top: 4px;">Loading...</div>
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <label style="font-size: 11px; font-weight: 700; color: #a29bfe;">BODY</label>
+                                <div id="hitlBodyText" style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 13px; margin-top: 4px; white-space: pre-wrap;">Loading...</div>
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <label style="font-size: 11px; font-weight: 700; color: #a29bfe;">CALL TO ACTION (CTA)</label>
+                                <div id="hitlCtaText" style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 13px; margin-top: 4px;">Loading...</div>
+                            </div>
+                        </div>
+
+                        <!-- Scenes Content -->
+                        <div id="hitlTabScenes" class="hitl-tab-content" style="display: none;">
+                            <div id="hitlScenesList" style="display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto;">
+                                <!-- Dynamically populated via JS -->
+                            </div>
+                        </div>
+
+                        <!-- Telemetry Content -->
+                        <div id="hitlTabTelemetry" class="hitl-tab-content" style="display: none;">
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Agent Execution & Timing Breakdown:</div>
+                            <div id="hitlTelemetryList" style="font-family: monospace; font-size: 12px; background: #0d0e15; padding: 12px; border-radius: 10px; max-height: 300px; overflow-y: auto;">
+                                <!-- Dynamically populated via JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Live Agent Terminal Badge (Minimized State) -->
+    <div id="terminal-badge" class="terminal-badge" onclick="restoreTerminalWindow()" style="display: none; position: fixed; bottom: 24px; right: 24px; z-index: 99999;" title="Click to open Live Agent Terminal">
+        <i class="ri-terminal-box-line" style="font-size: 16px;"></i>
+        <span>Live Terminal</span>
+        <span class="status-dot"></span>
+        <span class="badge-count" id="terminal-unread-badge" style="display: none;">0</span>
+    </div>
+
+    <!-- Floating Live Agent Terminal Window -->
+    <div id="terminal-floating-container" class="terminal-floating-container" style="position: fixed; bottom: 24px; right: 24px; z-index: 99999;">
+        <div class="terminal-window" id="terminal-window">
+            <div class="terminal-header" id="terminal-drag-handle">
+                <div class="terminal-dots">
+                    <span class="dot red" onclick="minimizeTerminalWindow()" title="Minimize / Hide"></span>
+                    <span class="dot yellow" onclick="minimizeTerminalWindow()" title="Minimize to Badge"></span>
+                    <span class="dot green" onclick="maximizeTerminalWindow()" title="Maximize / Restore"></span>
+                </div>
+                <div class="terminal-title">
+                    <i class="ri-drag-move-fill drag-icon" title="Click & Drag to move"></i>
+                    <i class="ri-terminal-box-line"></i> Live Agent Terminal
+                    <span class="status-dot" title="Connected"></span>
+                </div>
+                <div class="terminal-controls">
+                    <button class="term-icon-btn" onclick="clearTerminalLogs()" title="Clear logs">
+                        <i class="ri-delete-bin-line"></i> Clear
+                    </button>
+                    <button class="term-icon-btn" id="terminal-max-btn" onclick="maximizeTerminalWindow()" title="Maximize / Restore">
+                        <i class="ri-checkbox-blank-line" id="terminal-max-icon"></i> <span id="terminal-max-text">Maximize</span>
+                    </button>
+                    <button class="term-icon-btn" id="terminal-min-btn" onclick="minimizeTerminalWindow()" title="Minimize to Badge">
+                        <i class="ri-subtract-line"></i> Minimize
+                    </button>
+                </div>
+            </div>
+            <div class="terminal-body" id="terminal-logs">
+                <div class="log-line system"><span class="time"></span><span class="agent">[System]</span><span class="text"> Connecting to live log stream...</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=2.0.0"></script>
 </body>
 </html>

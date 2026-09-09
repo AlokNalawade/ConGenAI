@@ -6,9 +6,9 @@ class VideoAgent:
     def __init__(self):
         self.service = VideoService()
         
-    async def assemble_scene(self, image_path: str, audio_path: str, text: str = None) -> str:
+    async def assemble_scene(self, image_path: str, audio_path: str, text: str = None, duration: float = None) -> str:
         await log_manager.broadcast(f"Assembling scene video...", agent="VideoAgent")
-        return await asyncio.to_thread(self.service.create_scene_video, image_path, audio_path, text)
+        return await asyncio.to_thread(self.service.create_scene_video, image_path, audio_path, text, duration)
         
     async def assemble_final(self, video_paths: list[str]) -> str:
         await log_manager.broadcast(f"Concatenating {len(video_paths)} scenes into final video...", agent="VideoAgent")

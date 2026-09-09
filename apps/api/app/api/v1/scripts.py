@@ -38,14 +38,15 @@ async def generate_script(content_id: uuid.UUID, model: str = None, db: AsyncSes
         raise HTTPException(status_code=500, detail=str(e))
 
     # 3. Save to DB
+    script_dict = script_data.model_dump() if hasattr(script_data, "model_dump") else script_data
     db_script = DBScript(
         content_id=content_id,
         version=1, # simplified versioning for MVP
-        hook=script_data.get("hook", ""),
-        body=script_data.get("body", ""),
-        cta=script_data.get("cta", ""),
-        estimated_duration=script_data.get("estimated_duration", 0),
-        word_count=script_data.get("word_count", 0),
+        hook=script_dict.get("hook", ""),
+        body=script_dict.get("body", ""),
+        cta=script_dict.get("cta", ""),
+        estimated_duration=script_dict.get("estimated_duration", 0),
+        word_count=script_dict.get("word_count", 0),
         status="generated"
     )
     db.add(db_script)

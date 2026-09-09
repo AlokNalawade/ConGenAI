@@ -145,29 +145,192 @@ input, textarea, select { background: rgba(0,0,0,0.2); border: 1px solid var(--b
 input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 select option { background: var(--bg-dark); }
 
-/* Terminal */
-.terminal-content { height: 250px; flex: 0 0 250px; padding: 0 40px 40px 40px; display: flex; flex-direction: column; }
+/* Floating Live Terminal Window */
+.terminal-floating-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 560px;
+    z-index: 9999;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    background: #0a0a0c;
+    transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), height 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, transform 0.2s ease;
+}
+
+.terminal-floating-container.maximized {
+    top: 5vh !important;
+    left: 10vw !important;
+    width: 80vw !important;
+    height: 85vh !important;
+    bottom: auto !important;
+    right: auto !important;
+}
+
+.terminal-floating-container.maximized .terminal-window {
+    height: 100%;
+}
+
+.terminal-floating-container.maximized .terminal-body {
+    height: calc(85vh - 48px) !important;
+}
+
+.terminal-floating-container.minimized {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.8) translateY(20px);
+}
+
 .terminal-window {
-    background: #0a0a0c; border: 1px solid var(--border); border-radius: 16px;
-    flex: 1; display: flex; flex-direction: column; overflow: hidden;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    background: #0a0a0c;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
 }
+
 .terminal-header {
-    background: #1a1b26; padding: 12px 16px; display: flex; align-items: center; border-bottom: 1px solid var(--border);
+    background: #161722;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+    cursor: grab;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
 }
-.terminal-dots { display: flex; gap: 6px; }
-.terminal-dots span { width: 12px; height: 12px; border-radius: 50%; }
-.terminal-dots span:nth-child(1) { background: #ff5f56; }
-.terminal-dots span:nth-child(2) { background: #ffbd2e; }
-.terminal-dots span:nth-child(3) { background: #27c93f; }
-.terminal-title { flex: 1; text-align: center; font-family: monospace; color: var(--text-muted); font-size: 13px; }
+
+.terminal-header:active {
+    cursor: grabbing;
+}
+
+.terminal-dots {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.terminal-dots .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+
+.terminal-dots .dot.red { background: #ff5f56; }
+.terminal-dots .dot.yellow { background: #ffbd2e; }
+.terminal-dots .dot.green { background: #27c93f; }
+.terminal-dots .dot:hover { transform: scale(1.2); }
+
+.terminal-title {
+    flex: 1;
+    text-align: center;
+    font-family: var(--font-mono, monospace);
+    color: #a29bfe;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.drag-icon {
+    color: var(--text-muted);
+    font-size: 14px;
+    opacity: 0.6;
+}
+
+.status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #00b894;
+    box-shadow: 0 0 8px #00b894;
+}
+
+.terminal-controls {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.term-icon-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+}
+
+.term-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+}
+
 .terminal-body {
-    flex: 1; padding: 20px; overflow-y: auto; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-    font-size: 13px; line-height: 1.6;
+    height: 260px;
+    padding: 14px;
+    overflow-y: auto;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    background: #0d0e15;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
 }
+
 .log-line { margin-bottom: 8px; }
 .log-line.system { color: #56b6c2; }
 .log-line.llm .agent { color: #e5c07b; font-weight: bold; }
 .log-line .agent { color: #c678dd; font-weight: bold; }
 .log-line .text { color: #abb2bf; white-space: pre-wrap; word-break: break-word; display: inline-block; vertical-align: top; }
 .log-line .time { color: #5c6370; margin-right: 8px; }
+
+/* Floating Badge Pill when Minimized */
+.terminal-badge {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    background: linear-gradient(135deg, #161722, #0d0e15);
+    border: 1px solid rgba(162, 155, 254, 0.3);
+    color: #a29bfe;
+    padding: 10px 18px;
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 12px rgba(162, 155, 254, 0.2);
+    transition: all 0.25s ease;
+}
+
+.terminal-badge:hover {
+    transform: translateY(-2px) scale(1.03);
+    border-color: #a29bfe;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6), 0 0 18px rgba(162, 155, 254, 0.4);
+}
+
+.badge-count {
+    background: #ff7675;
+    color: white;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 700;
+}

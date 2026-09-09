@@ -10,3 +10,5 @@ class VoiceAgent:
         result = await self.service.generate_voice(text)
         await log_manager.broadcast("Audio synthesis complete.", agent="VoiceAgent")
         return result
+
+    generate_voice = generate

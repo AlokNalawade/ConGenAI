@@ -1,5 +1,6 @@
 from app.agents.base import BaseAgent
 from app.core.logging import log_manager
+from app.models.ai_contracts import ScriptResult, validate_ai_response
 import json
 
 class ScriptAgent(BaseAgent):
@@ -16,9 +17,11 @@ Return ONLY valid JSON with the following structure:
 }
 """
 
-    async def generate_script(self, research_data: dict, platform: str = "Shorts") -> dict:
+    async def generate_script(self, research_data: dict, platform: str = "Shorts") -> ScriptResult:
         await log_manager.broadcast(f"Writing script based on research for {platform}...", agent="ScriptAgent")
         user_prompt = f"Platform: {platform}\nResearch Data: {json.dumps(research_data)}"
-        result = await self.run(self.SYSTEM_PROMPT, user_prompt, json_mode=True)
-        await log_manager.broadcast(f"Script generated! Estimated duration: {result.get('estimated_duration')}s", agent="ScriptAgent")
-        return result
+        raw_res = await self.run(self.SYSTEM_PROMPT, user_prompt, json_mode=True)
+        validated = validate_ai_response(raw_res, ScriptResult)
+        await log_manager.broadcast(f"Script generated! Estimated duration: {validated.estimated_duration}s", agent="ScriptAgent")
+        return validated
+

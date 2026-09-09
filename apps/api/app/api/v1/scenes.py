@@ -38,8 +38,9 @@ async def generate_scenes(content_id: uuid.UUID, model: str = None, db: AsyncSes
         raise HTTPException(status_code=500, detail=str(e))
 
     # 3. Save to DB
+    scene_dict_data = scene_data.model_dump() if hasattr(scene_data, "model_dump") else scene_data
     scenes_to_return = []
-    for scene_dict in scene_data.get("scenes", []):
+    for scene_dict in scene_dict_data.get("scenes", []):
         db_scene = DBScene(
             content_id=content_id,
             scene_number=scene_dict.get("scene_number"),

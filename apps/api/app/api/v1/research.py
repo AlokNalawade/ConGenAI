@@ -31,15 +31,16 @@ async def generate_research(content_id: uuid.UUID, model: str = None, db: AsyncS
         raise HTTPException(status_code=500, detail=str(e))
 
     # 3. Save to DB
+    res_dict = research_data.model_dump() if hasattr(research_data, "model_dump") else research_data
     db_research = DBResearch(
         content_id=content_id,
-        summary=research_data.get("summary", ""),
-        key_points=research_data.get("key_points", []),
-        statistics=research_data.get("statistics", []),
-        sources=research_data.get("sources", []),
-        competitor_analysis=research_data.get("competitor_analysis", []),
-        hooks=research_data.get("hooks", []),
-        warnings=research_data.get("warnings", []),
+        summary=res_dict.get("summary", ""),
+        key_points=res_dict.get("key_points", []),
+        statistics=res_dict.get("statistics", []),
+        sources=res_dict.get("sources", []),
+        competitor_analysis=res_dict.get("competitor_analysis", []),
+        hooks=res_dict.get("hooks", []),
+        warnings=res_dict.get("warnings", []),
     )
     db.add(db_research)
     

@@ -10,3 +10,5 @@ class ImageAgent:
         result = await self.service.generate_image(prompt, caption_text=caption_text, width=width, height=height)
         await log_manager.broadcast("Image generated successfully.", agent="ImageAgent")
         return result
+
+    generate_image = generate

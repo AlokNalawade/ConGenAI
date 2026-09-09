@@ -131,8 +131,8 @@ function renderKanban(contents) {
             actionBtn = `<button class="btn-sm btn-action" onclick="triggerAction(this, '${content.id}', 'media')"><i class="ri-image-edit-line"></i> Gen Media</button>`;
         } else if (s === 'media') {
             actionBtn = `<button class="btn-sm btn-action" onclick="triggerAction(this, '${content.id}', 'assemble')"><i class="ri-movie-line"></i> Assemble Video</button>`;
-        } else if (s === 'completed') {
-            actionBtn = `<button class="btn-sm btn-action" style="background:#00b894;" onclick="playVideo('${content.id}')"><i class="ri-play-fill"></i> Play Video</button>`;
+        } else if (s === 'completed' || s === 'awaiting_approval' || s === 'approved') {
+            actionBtn = `<button class="btn-sm btn-action" style="background:#00b894;" onclick="openHitlInspector('${content.id}')"><i class="ri-eye-line"></i> Inspect & Review</button>`;
         }
 
         card.innerHTML = `
@@ -526,6 +526,9 @@ function onSearchInput(query) {
 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ws = new WebSocket(`${wsProtocol}//${window.location.host}/api/ws/logs`);
 
+let unreadLogCount = 0;
+let isTerminalMinimized = false;
+
 ws.onmessage = function(event) {
     const logs = document.getElementById('terminal-logs');
     try {
@@ -537,8 +540,19 @@ ws.onmessage = function(event) {
         
         line.innerHTML = `<span class="time">[${data.time || new Date().toLocaleTimeString()}]</span> <span class="agent">[${data.agent || 'System'}]</span> <span class="text">${escapeHtml(data.message)}</span>`;
         
-        logs.appendChild(line);
-        logs.scrollTop = logs.scrollHeight;
+        if (logs) {
+            logs.appendChild(line);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        if (isTerminalMinimized) {
+            unreadLogCount++;
+            const unreadBadge = document.getElementById('terminal-unread-badge');
+            if (unreadBadge) {
+                unreadBadge.innerText = unreadLogCount;
+                unreadBadge.style.display = 'inline-block';
+            }
+        }
     } catch (e) {
         console.error("Failed to parse log message:", event.data);
     }
@@ -615,3 +629,271 @@ function closeVideoModal() {
 }
 
 fetchPipeline();
+
+// --- Terminal Controls & Draggable Window ---
+let isDraggingTerminal = false;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+
+function setupDraggableTerminal() {
+    const container = document.getElementById('terminal-floating-container');
+    const dragHandle = document.getElementById('terminal-drag-handle');
+    if (!container || !dragHandle) return;
+
+    // Attach click listeners directly
+    const minBtn = document.getElementById('terminal-min-btn');
+    const maxBtn = document.getElementById('terminal-max-btn');
+    const badge = document.getElementById('terminal-badge');
+    const redDot = dragHandle.querySelector('.dot.red');
+    const yellowDot = dragHandle.querySelector('.dot.yellow');
+    const greenDot = dragHandle.querySelector('.dot.green');
+
+    if (minBtn) minBtn.onclick = (e) => { e.stopPropagation(); minimizeTerminalWindow(); };
+    if (maxBtn) maxBtn.onclick = (e) => { e.stopPropagation(); maximizeTerminalWindow(); };
+    if (badge) badge.onclick = (e) => { e.stopPropagation(); restoreTerminalWindow(); };
+    if (redDot) redDot.onclick = (e) => { e.stopPropagation(); minimizeTerminalWindow(); };
+    if (yellowDot) yellowDot.onclick = (e) => { e.stopPropagation(); minimizeTerminalWindow(); };
+    if (greenDot) greenDot.onclick = (e) => { e.stopPropagation(); maximizeTerminalWindow(); };
+
+    dragHandle.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button') || e.target.closest('.dot')) return;
+        if (container.classList.contains('maximized')) return;
+
+        isDraggingTerminal = true;
+        const rect = container.getBoundingClientRect();
+        dragOffsetX = e.clientX - rect.left;
+        dragOffsetY = e.clientY - rect.top;
+
+        container.style.left = rect.left + 'px';
+        container.style.top = rect.top + 'px';
+        container.style.bottom = 'auto';
+        container.style.right = 'auto';
+
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDraggingTerminal || container.classList.contains('maximized')) return;
+
+        let left = e.clientX - dragOffsetX;
+        let top = e.clientY - dragOffsetY;
+
+        const maxLeft = window.innerWidth - container.offsetWidth;
+        const maxTop = window.innerHeight - 40;
+
+        left = Math.max(0, Math.min(left, maxLeft));
+        top = Math.max(0, Math.min(top, maxTop));
+
+        container.style.left = left + 'px';
+        container.style.top = top + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDraggingTerminal) {
+            isDraggingTerminal = false;
+            document.body.style.userSelect = '';
+        }
+    });
+}
+
+function minimizeTerminalWindow() {
+    const container = document.getElementById('terminal-floating-container');
+    const badge = document.getElementById('terminal-badge');
+    if (!container) return;
+
+    isTerminalMinimized = true;
+    container.classList.add('minimized');
+    container.style.display = 'none';
+    if (badge) {
+        badge.style.display = 'flex';
+    }
+}
+
+function restoreTerminalWindow() {
+    const container = document.getElementById('terminal-floating-container');
+    const badge = document.getElementById('terminal-badge');
+    const unreadBadge = document.getElementById('terminal-unread-badge');
+    if (!container) return;
+
+    isTerminalMinimized = false;
+    container.classList.remove('minimized');
+    container.style.display = 'block';
+    if (badge) {
+        badge.style.display = 'none';
+    }
+    unreadLogCount = 0;
+    if (unreadBadge) {
+        unreadBadge.style.display = 'none';
+        unreadBadge.innerText = '0';
+    }
+}
+
+function maximizeTerminalWindow() {
+    const container = document.getElementById('terminal-floating-container');
+    const maxIcon = document.getElementById('terminal-max-icon');
+    const maxText = document.getElementById('terminal-max-text');
+    if (!container) return;
+
+    if (container.classList.contains('maximized')) {
+        container.classList.remove('maximized');
+        if (container.dataset.prevLeft !== undefined && container.dataset.prevLeft !== '') {
+            container.style.left = container.dataset.prevLeft;
+            container.style.top = container.dataset.prevTop;
+            container.style.bottom = 'auto';
+            container.style.right = 'auto';
+        } else {
+            container.style.left = '';
+            container.style.top = '';
+            container.style.bottom = '24px';
+            container.style.right = '24px';
+        }
+        if (maxIcon) maxIcon.className = 'ri-checkbox-blank-line';
+        if (maxText) maxText.innerText = 'Maximize';
+    } else {
+        container.dataset.prevLeft = container.style.left || '';
+        container.dataset.prevTop = container.style.top || '';
+        container.classList.add('maximized');
+        if (maxIcon) maxIcon.className = 'ri-aspect-ratio-line';
+        if (maxText) maxText.innerText = 'Restore';
+    }
+}
+
+function toggleTerminalCollapse() {
+    if (isTerminalMinimized) {
+        restoreTerminalWindow();
+    } else {
+        minimizeTerminalWindow();
+    }
+}
+
+function clearTerminalLogs() {
+    const body = document.getElementById('terminal-logs');
+    if (body) {
+        body.innerHTML = '<div class="log-line system"><span class="time"></span><span class="agent">[System]</span><span class="text"> Log console cleared.</span></div>';
+    }
+}
+
+// --- HITL Inspector & Action Handlers ---
+let currentHitlContentId = null;
+
+async function openHitlInspector(contentId) {
+    currentHitlContentId = contentId;
+    toggleModal('hitlModal');
+
+    const titleEl = document.getElementById('hitlTitle');
+    const scoreEl = document.getElementById('hitlScore');
+    const hookEl = document.getElementById('hitlHookText');
+    const bodyEl = document.getElementById('hitlBodyText');
+    const ctaEl = document.getElementById('hitlCtaText');
+    const player = document.getElementById('hitlVideoPlayer');
+
+    if (titleEl) titleEl.innerText = "Content Inspector";
+    if (scoreEl) scoreEl.innerText = "--";
+    if (hookEl) hookEl.innerText = "Loading script...";
+    if (bodyEl) bodyEl.innerText = "Loading...";
+    if (ctaEl) ctaEl.innerText = "Loading...";
+
+    try {
+        const res = await fetch(`${API_BASE}/content/${contentId}/pipeline`);
+        if (res.ok) {
+            const data = await res.json();
+            if (titleEl) titleEl.innerText = data.title || "Content Inspector";
+            if (scoreEl) scoreEl.innerText = data.quality_score !== null ? data.quality_score : "--";
+
+            if (data.video_asset_path && player) {
+                let url = data.video_asset_path.replace(/\\/g, '/').replace(/.*data\/assets\//, '/assets/');
+                if (!url.startsWith('/')) url = '/' + url;
+                player.src = url + '?t=' + Date.now();
+                player.load();
+            }
+        }
+
+        // Fetch script details
+        const scriptRes = await fetch(`${API_BASE}/content/${contentId}/scripts/latest`);
+        if (scriptRes.ok) {
+            const scriptData = await scriptRes.json();
+            if (hookEl) hookEl.innerText = scriptData.hook || "(No hook generated)";
+            if (bodyEl) bodyEl.innerText = scriptData.body || "(No body generated)";
+            if (ctaEl) ctaEl.innerText = scriptData.cta || "(No CTA generated)";
+        }
+
+        // Fetch scenes details
+        const scenesRes = await fetch(`${API_BASE}/content/${contentId}/scenes/`);
+        if (scenesRes.ok) {
+            const scenesData = await scenesRes.json();
+            const scenesListEl = document.getElementById('hitlScenesList');
+            if (scenesListEl) {
+                scenesListEl.innerHTML = scenesData.map(sc => `
+                    <div style="padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+                        <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: #a29bfe; margin-bottom: 4px;">
+                            <span>Scene ${sc.scene_number} (${sc.duration}s)</span>
+                            <span>${sc.transition || 'fade'}</span>
+                        </div>
+                        <div style="font-size: 12px; color: #fff; margin-bottom: 4px;">🗣️ ${escapeHtml(sc.narration || '')}</div>
+                        <div style="font-size: 11px; color: var(--text-muted);">🎨 Visual: ${escapeHtml(sc.visual_prompt || sc.visual_description || '')}</div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) {
+        console.error("Error opening HITL inspector:", e);
+    }
+}
+
+function switchHitlTab(tabName) {
+    ['script', 'scenes', 'telemetry'].forEach(t => {
+        const tabEl = document.getElementById(`hitlTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        const btnEl = document.getElementById(`hitlTab${t.charAt(0).toUpperCase() + t.slice(1)}Btn`);
+        if (tabEl) tabEl.style.display = (t === tabName) ? 'block' : 'none';
+        if (btnEl) btnEl.classList.toggle('active', t === tabName);
+    });
+}
+
+async function hitlApprove() {
+    if (!currentHitlContentId) return;
+    try {
+        const res = await fetch(`${API_BASE}/content/${currentHitlContentId}/approve`, { method: 'POST' });
+        if (res.ok) {
+            alert("Content approved for publishing!");
+            toggleModal('hitlModal');
+            fetchPipeline();
+        }
+    } catch (e) {
+        console.error("Failed to approve content:", e);
+    }
+}
+
+async function hitlResume() {
+    if (!currentHitlContentId) return;
+    try {
+        const res = await fetch(`${API_BASE}/content/${currentHitlContentId}/resume`, { method: 'POST' });
+        if (res.ok) {
+            alert("Resuming content production pipeline...");
+            toggleModal('hitlModal');
+            fetchPipeline();
+        }
+    } catch (e) {
+        console.error("Failed to resume content:", e);
+    }
+}
+
+async function hitlRegenerate() {
+    if (!currentHitlContentId) return;
+    try {
+        const res = await fetch(`${API_BASE}/content/${currentHitlContentId}/regenerate`, { method: 'POST' });
+        if (res.ok) {
+            alert("Regeneration triggered!");
+            toggleModal('hitlModal');
+            fetchPipeline();
+        }
+    } catch (e) {
+        console.error("Failed to regenerate content:", e);
+    }
+}
+
+// Initialize terminal handlers
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupDraggableTerminal);
+} else {
+    setupDraggableTerminal();
+}
