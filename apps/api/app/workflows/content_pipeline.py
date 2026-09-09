@@ -338,19 +338,15 @@ class ContentPipeline:
 
         sem = asyncio.Semaphore(2)
 
-        async def _process_scene_assets(db_sc):
+        async def _process_scene_assets(scene_num: int, scene_db_id: uuid.UUID, prompt: str, narration: str, scene_dur: float):
             async with sem:
-                scene_num = db_sc.scene_number
-                prompt = db_sc.visual_prompt or f"Scene {scene_num} for video about {ctx.title}"
-                
                 async with AgentTracker(db, ctx.content_id, "ASSETS_IMAGE", "ImageAgent", provider=compute_config.image.provider, model=compute_config.image.model):
                     img_path = await image_agent.generate_image(prompt=prompt)
                 
-                narration = db_sc.narration or ctx.title
                 async with AgentTracker(db, ctx.content_id, "ASSETS_VOICE", "VoiceAgent", provider=compute_config.tts.provider, model=compute_config.tts.model):
                     audio_path = await voice_agent.generate_voice(text=narration)
 
-                actual_duration = db_sc.duration
+                actual_duration = scene_dur
                 if audio_path and os.path.exists(audio_path):
                     try:
                         import wave
@@ -362,9 +358,18 @@ class ContentPipeline:
                     except Exception:
                         pass
 
-                return scene_num, db_sc.id, prompt, img_path, audio_path, actual_duration
+                return scene_num, scene_db_id, prompt, img_path, audio_path, actual_duration
 
-        tasks = [_process_scene_assets(sc) for sc in db_scenes]
+        tasks = [
+            _process_scene_assets(
+                sc.scene_number,
+                sc.id,
+                sc.visual_prompt or f"Scene {sc.scene_number} for video about {ctx.title}",
+                sc.narration or ctx.title,
+                sc.duration
+            )
+            for sc in db_scenes
+        ]
         media_results = await asyncio.gather(*tasks)
 
         for scene_num, scene_db_id, prompt, img_path, audio_path, actual_duration in media_results:
