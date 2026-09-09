@@ -11,10 +11,29 @@ async def init_db():
         logger.info("Creating all missing database tables...")
         await conn.run_sync(Base.metadata.create_all)
         
-        # Safely add parent_asset_id and version columns to assets table if they do not exist
-        logger.info("Verifying assets table column updates...")
-        await conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS parent_asset_id UUID REFERENCES assets(id);"))
-        await conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;"))
+        logger.info("Verifying database table column updates...")
+        alter_statements = [
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS parent_asset_id UUID REFERENCES assets(id);",
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;",
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS prompt TEXT;",
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS negative_prompt TEXT;",
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS seed INTEGER;",
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS workflow TEXT;",
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS sha256 VARCHAR;",
+            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'completed';",
+            "ALTER TABLE research ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
+            "ALTER TABLE research ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'completed';",
+            "ALTER TABLE strategies ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
+            "ALTER TABLE scripts ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
+            "ALTER TABLE scenes ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
+            "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;"
+        ]
+        for stmt in alter_statements:
+            try:
+                await conn.execute(text(stmt))
+            except Exception as e:
+                logger.warning(f"Column alter statement '{stmt}' skipped: {e}")
         logger.info("Database schema sync completed successfully.")
 
 if __name__ == "__main__":

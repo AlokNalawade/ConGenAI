@@ -18,6 +18,13 @@ class ResearchResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class StrategyResult(BaseModel):
+    content_angle: str = Field(default="Educational Overview", description="Core perspective or angle for the video")
+    target_audience_analysis: str = Field(default="General Tech Enthusiasts", description="Insights on audience preferences")
+    hook_strategy: str = Field(default="Curiosity Gap", description="Framework used for the video hook")
+    format_guidelines: List[str] = Field(default_factory=list, description="Visual and narrative format constraints")
+
+
 class ScriptResult(BaseModel):
     hook: str = Field(..., description="First 3 seconds attention grabber")
     body: str = Field(..., description="Main content narrative")
@@ -29,6 +36,10 @@ class ScriptResult(BaseModel):
         if self.word_count == 0 and (self.hook or self.body or self.cta):
             total_text = f"{self.hook} {self.body} {self.cta}"
             self.word_count = len(total_text.split())
+        # Calculate estimated duration based on 150 WPM (2.5 words/sec) if not supplied or zero
+        if self.estimated_duration == 0 or self.estimated_duration == 30:
+            if self.word_count > 0:
+                self.estimated_duration = max(5, int(self.word_count / 2.5))
 
 
 class Scene(BaseModel):
@@ -45,6 +56,26 @@ class Scene(BaseModel):
 class ScenePlan(BaseModel):
     scenes: List[Scene] = Field(..., min_length=1)
 
+    def validate_consistency(self, target_duration: Optional[float] = None) -> bool:
+        """
+        Enforces scene continuity and duration bounds.
+        """
+        sorted_scenes = sorted(self.scenes, key=lambda s: s.scene_number)
+        numbers = [s.scene_number for s in sorted_scenes]
+        expected_numbers = list(range(1, len(self.scenes) + 1))
+        
+        if numbers != expected_numbers:
+            raise ValueError(f"Scene numbers are not contiguous: expected {expected_numbers}, got {numbers}")
+            
+        total_duration = sum(s.duration for s in self.scenes)
+        if target_duration and target_duration > 0:
+            allowed_diff = max(5.0, 0.20 * target_duration)
+            if abs(total_duration - target_duration) > allowed_diff:
+                logger.warning(
+                    f"Scene plan duration ({total_duration:.1f}s) deviates from target script duration ({target_duration:.1f}s) by more than allowed threshold ({allowed_diff:.1f}s)."
+                )
+        return True
+
 
 class AssetSpec(BaseModel):
     asset_type: str = Field(..., description="image, audio, or video")
@@ -58,7 +89,7 @@ class QualityResult(BaseModel):
     script_score: float = Field(default=0.0, ge=0.0, le=100.0)
     audio_score: float = Field(default=0.0, ge=0.0, le=100.0)
     video_score: float = Field(default=0.0, ge=0.0, le=100.0)
-    passed: bool = Field(default=True)
+    passed: bool = Field(default=False)  # Fail closed by default
     feedback: List[str] = Field(default_factory=list)
     suggestions: List[str] = Field(default_factory=list)
 

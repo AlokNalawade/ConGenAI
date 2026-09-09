@@ -7,6 +7,9 @@ from sqlalchemy.future import select
 
 logger = logging.getLogger(__name__)
 
+class InvalidWorkflowTransitionError(Exception):
+    pass
+
 class WorkflowState(str, Enum):
     IDEA = "idea"
     RESEARCH = "researching"
@@ -34,7 +37,7 @@ VALID_TRANSITIONS: Dict[WorkflowState, Set[WorkflowState]] = {
     WorkflowState.VOICE: {WorkflowState.RENDER, WorkflowState.FAILED},
     WorkflowState.RENDER: {WorkflowState.QUALITY_CHECK, WorkflowState.FAILED},
     WorkflowState.QUALITY_CHECK: {WorkflowState.AWAITING_APPROVAL, WorkflowState.APPROVED, WorkflowState.FAILED},
-    WorkflowState.AWAITING_APPROVAL: {WorkflowState.APPROVED, WorkflowState.RESEARCH, WorkflowState.SCRIPT, WorkflowState.SCENES, WorkflowState.FAILED},
+    WorkflowState.AWAITING_APPROVAL: {WorkflowState.APPROVED, WorkflowState.RESEARCH, WorkflowState.STRATEGY, WorkflowState.SCRIPT, WorkflowState.SCENES, WorkflowState.FAILED},
     WorkflowState.APPROVED: {WorkflowState.PUBLISHED, WorkflowState.FAILED},
     WorkflowState.PUBLISHED: {WorkflowState.ANALYTICS, WorkflowState.FAILED},
     WorkflowState.ANALYTICS: set(),
@@ -67,7 +70,8 @@ async def update_workflow_state(
     db: AsyncSession,
     content_id: uuid.UUID,
     new_state: WorkflowState,
-    quality_score: float = None
+    quality_score: float = None,
+    force: bool = False
 ) -> None:
     from app.db.models import Content as DBContent
 
@@ -75,8 +79,13 @@ async def update_workflow_state(
     content = result.scalars().first()
     if content:
         old_state = content.status
-        if not can_transition(old_state, new_state.value):
-            logger.warning(f"Abnormal transition from '{old_state}' to '{new_state.value}' for content {content_id}")
+        if old_state and old_state != new_state.value and not can_transition(old_state, new_state.value):
+            if not force:
+                raise InvalidWorkflowTransitionError(
+                    f"Illegal state transition requested for content {content_id}: '{old_state}' ➔ '{new_state.value}'."
+                )
+            else:
+                logger.warning(f"Forced administrative state transition: '{old_state}' ➔ '{new_state.value}' for content {content_id}")
         
         content.status = new_state.value
         if quality_score is not None:

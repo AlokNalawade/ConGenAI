@@ -1,16 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import uuid
 
 from app.db.database import get_db, AsyncSessionLocal
-from app.db.models import Content as DBContent, Research as DBResearch, Script as DBScript, Scene as DBScene, Asset as DBAsset
+from app.db.models import (
+    Content as DBContent,
+    ContentIdea as DBContentIdea,
+    Research as DBResearch,
+    Script as DBScript,
+    Scene as DBScene,
+    Asset as DBAsset
+)
 from app.workflows.content_pipeline import ContentPipeline
 from app.workflows.workflow_state import WorkflowState, update_workflow_state
 from app.workflows.worker import job_manager
 
 router = APIRouter()
+
+class BatchPipelineRequest(BaseModel):
+    topic: str = Field(..., description="Topic or prompt for content batch generation")
+    count: int = Field(default=3, ge=1, le=10, description="Number of content items to generate")
+    platforms: List[str] = Field(default=["youtube_shorts"], description="Target platforms")
+    model_overrides: Optional[Dict[str, str]] = None
 
 @router.post("/pipeline", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_content_pipeline(
@@ -25,7 +39,11 @@ async def trigger_content_pipeline(
     if not content:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    job = job_manager.create_job(str(content_id))
+    job = await job_manager.create_job(
+        content_id=str(content_id),
+        model_overrides=model_overrides,
+        resume=resume
+    )
 
     if sync:
         await job_manager.run_job(job.job_id, sync=True)
@@ -45,9 +63,59 @@ async def trigger_content_pipeline(
             "message": f"Autonomous pipeline job '{job.job_id}' queued and processing."
         }
 
+@router.post("/pipeline/batch", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_batch_pipeline(
+    req: BatchPipelineRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    batch_id = f"batch_{uuid.uuid4().hex[:8]}"
+    queued_jobs = []
+
+    for i in range(req.count):
+        idea_title = f"{req.topic} - Variation {i+1}"
+        idea = DBContentIdea(
+            title=idea_title,
+            topic=req.topic,
+            platform=req.platforms[0] if req.platforms else "youtube_shorts",
+            status="approved"
+        )
+        db.add(idea)
+        await db.commit()
+        await db.refresh(idea)
+
+        content = DBContent(
+            idea_id=idea.id,
+            title=idea_title,
+            platform=req.platforms[0] if req.platforms else "youtube_shorts",
+            status=WorkflowState.IDEA.value
+        )
+        db.add(content)
+        await db.commit()
+        await db.refresh(content)
+
+        job = await job_manager.create_job(
+            content_id=str(content.id),
+            model_overrides=req.model_overrides,
+            resume=False
+        )
+        await job_manager.run_job(job.job_id, sync=False)
+        queued_jobs.append({
+            "job_id": job.job_id,
+            "content_id": str(content.id),
+            "title": idea_title
+        })
+
+    return {
+        "batch_id": batch_id,
+        "topic": req.topic,
+        "count": len(queued_jobs),
+        "status": "202_accepted",
+        "queued_jobs": queued_jobs
+    }
+
 @router.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
-    job = job_manager.get_job(job_id)
+    job = await job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job.to_dict()
@@ -59,7 +127,7 @@ async def resume_content_pipeline(content_id: uuid.UUID, db: AsyncSession = Depe
     if not content:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    job = job_manager.create_job(str(content_id))
+    job = await job_manager.create_job(content_id=str(content_id), resume=True)
     await job_manager.run_job(job.job_id, sync=False)
     return {
         "job_id": job.job_id,
@@ -87,7 +155,7 @@ async def get_pipeline_status(content_id: uuid.UUID, db: AsyncSession = Depends(
     video_res = await db.execute(select(DBAsset).filter(DBAsset.content_id == content_id, DBAsset.asset_type == "video").order_by(DBAsset.created_at.desc()))
     video_asset = video_res.scalars().first()
 
-    active_job = job_manager.get_job_by_content(str(content_id))
+    active_job = await job_manager.get_job_by_content(str(content_id))
 
     return {
         "content_id": str(content_id),
@@ -110,7 +178,7 @@ async def approve_content(content_id: uuid.UUID, db: AsyncSession = Depends(get_
     if not content:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    await update_workflow_state(db, content_id, WorkflowState.APPROVED)
+    await update_workflow_state(db, content_id, WorkflowState.APPROVED, force=True)
     return {
         "content_id": str(content_id),
         "status": WorkflowState.APPROVED.value,
@@ -124,7 +192,7 @@ async def regenerate_content(content_id: uuid.UUID, db: AsyncSession = Depends(g
     if not content:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    job = job_manager.create_job(str(content_id))
+    job = await job_manager.create_job(content_id=str(content_id), resume=False)
     await job_manager.run_job(job.job_id, sync=False)
     return {
         "job_id": job.job_id,
