@@ -73,20 +73,23 @@ class JobManager:
         )
         self.memory_jobs[job_id] = job
 
-        # Persist to DB
-        async with AsyncSessionLocal() as db:
-            db_job = PipelineJobDB(
-                id=job.job_id,
-                content_id=uuid.UUID(job.content_id),
-                status=job.status,
-                current_stage=job.current_stage,
-                progress_percent=job.progress_percent,
-                model_overrides=job.model_overrides,
-                resume=1 if job.resume else 0,
-                pipeline_run_id=uuid.UUID(job.pipeline_run_id)
-            )
-            db.add(db_job)
-            await db.commit()
+        # Persist to DB if content exists
+        try:
+            async with AsyncSessionLocal() as db:
+                db_job = PipelineJobDB(
+                    id=job.job_id,
+                    content_id=uuid.UUID(job.content_id),
+                    status=job.status,
+                    current_stage=job.current_stage,
+                    progress_percent=job.progress_percent,
+                    model_overrides=job.model_overrides,
+                    resume=1 if job.resume else 0,
+                    pipeline_run_id=uuid.UUID(job.pipeline_run_id)
+                )
+                db.add(db_job)
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Could not persist PipelineJob {job.job_id} to DB: {e}")
         return job
 
     async def get_job(self, job_id: str) -> Optional[PipelineJob]:
