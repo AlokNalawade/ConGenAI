@@ -20,6 +20,14 @@ from app.db.models import (
     PipelineRun as DBPipelineRun
 )
 
+from app.models.ai_contracts import (
+    ResearchResult,
+    StrategyResult,
+    ScriptResult,
+    Scene,
+    ScenePlan
+)
+
 from app.agents.research import ResearchAgent
 from app.agents.strategy import StrategyAgent
 from app.agents.script import ScriptAgent
@@ -38,6 +46,111 @@ class ContentPipeline:
     def __init__(self):
         self.quality_agent = QualityAgent()
 
+    async def hydrate_context(self, ctx: WorkflowContext, db: AsyncSession):
+        """
+        Hydrates WorkflowContext from existing database artifacts when resuming.
+        """
+        # 1. Research
+        if not ctx.research:
+            r_res = await db.execute(
+                select(DBResearch)
+                .filter(DBResearch.content_id == ctx.content_id, DBResearch.status == "completed")
+                .order_by(DBResearch.created_at.desc())
+            )
+            db_research = r_res.scalars().first()
+            if db_research:
+                ctx.research = ResearchResult(
+                    summary=db_research.summary or "",
+                    key_points=db_research.key_points or [],
+                    statistics=db_research.statistics or [],
+                    sources=db_research.sources or [],
+                    competitor_analysis=db_research.competitor_analysis or [],
+                    hooks=db_research.hooks or [],
+                    warnings=db_research.warnings or []
+                )
+
+        # 2. Strategy
+        if not ctx.strategy:
+            st_res = await db.execute(
+                select(DBStrategy)
+                .filter(DBStrategy.content_id == ctx.content_id, DBStrategy.status == "completed")
+                .order_by(DBStrategy.created_at.desc())
+            )
+            db_strategy = st_res.scalars().first()
+            if db_strategy:
+                ctx.strategy = StrategyResult(
+                    content_angle=db_strategy.content_angle or "Educational",
+                    target_audience_analysis=db_strategy.target_audience_analysis or "General Audience",
+                    hook_strategy=db_strategy.hook_strategy or "Curiosity Gap",
+                    format_guidelines=db_strategy.format_guidelines or []
+                )
+
+        # 3. Script
+        if not ctx.script:
+            s_res = await db.execute(
+                select(DBScript)
+                .filter(DBScript.content_id == ctx.content_id, DBScript.status == "completed")
+                .order_by(DBScript.created_at.desc())
+            )
+            db_script = s_res.scalars().first()
+            if db_script:
+                ctx.script = ScriptResult(
+                    hook=db_script.hook or "",
+                    body=db_script.body or "",
+                    cta=db_script.cta or "Follow for more!",
+                    estimated_duration=db_script.estimated_duration or 30,
+                    word_count=db_script.word_count or 0
+                )
+
+        # 4. Scenes
+        if not ctx.scene_plan:
+            sc_res = await db.execute(
+                select(DBScene)
+                .filter(DBScene.content_id == ctx.content_id, DBScene.status == "completed")
+                .order_by(DBScene.scene_number)
+            )
+            db_scenes = sc_res.scalars().all()
+            if db_scenes:
+                ctx.scene_plan = ScenePlan(scenes=[
+                    Scene(
+                        scene_number=sc.scene_number,
+                        duration=sc.duration or 5.0,
+                        narration=sc.narration or "",
+                        visual_description=sc.visual_description or "",
+                        visual_prompt=sc.visual_prompt or "",
+                        onscreen_text=sc.onscreen_text,
+                        transition=sc.transition or "none",
+                        sound_effect=sc.sound_effect
+                    ) for sc in db_scenes
+                ])
+
+        # 5. Scene Assets
+        sc_res = await db.execute(
+            select(DBScene)
+            .filter(DBScene.content_id == ctx.content_id, DBScene.status == "completed")
+            .order_by(DBScene.scene_number)
+        )
+        db_scenes = sc_res.scalars().all()
+        
+        a_res = await db.execute(
+            select(DBAsset)
+            .filter(DBAsset.content_id == ctx.content_id, DBAsset.status == "completed")
+        )
+        db_assets = a_res.scalars().all()
+
+        for sc in db_scenes:
+            sc_num = sc.scene_number
+            img_a = next((a for a in db_assets if a.scene_id == sc.id and a.asset_type == "image" and os.path.exists(a.path) and os.path.getsize(a.path) > 100), None)
+            aud_a = next((a for a in db_assets if a.scene_id == sc.id and a.asset_type == "audio" and os.path.exists(a.path) and os.path.getsize(a.path) > 100), None)
+            if img_a or aud_a:
+                ctx.scene_assets[sc_num] = {
+                    "scene_id": sc.id,
+                    "duration": sc.duration,
+                    "onscreen_text": sc.onscreen_text,
+                    "image_path": img_a.path if img_a else None,
+                    "audio_path": aud_a.path if aud_a else None
+                }
+
     async def run(
         self,
         content_id: uuid.UUID,
@@ -50,7 +163,7 @@ class ContentPipeline:
         run_id = pipeline_run_id or uuid.uuid4()
         ctx.pipeline_run_id = run_id
 
-        # 1. Fetch content from database
+        # Fetch content from database
         result = await db.execute(select(DBContent).filter(DBContent.id == content_id))
         content = result.scalars().first()
         if not content:
@@ -83,55 +196,28 @@ class ContentPipeline:
             has_strategy = False
             has_script = False
             has_scenes = False
-            has_media = False
             has_render = False
 
             if resume:
-                # Check DBResearch
-                r_res = await db.execute(
-                    select(DBResearch)
-                    .filter(DBResearch.content_id == content_id, DBResearch.status == "completed")
-                    .order_by(DBResearch.created_at.desc())
-                )
-                db_research = r_res.scalars().first()
-                if db_research:
+                await self.hydrate_context(ctx, db)
+
+                if ctx.research:
                     has_research = True
-                    await log_manager.broadcast("⏩ [Resume] Valid Research artifact found. Skipping Research step.", agent="ContentPipeline")
+                    await log_manager.broadcast("⏩ [Resume] Valid Research artifact loaded. Skipping Research step.", agent="ContentPipeline")
 
-                # Check DBStrategy
-                st_res = await db.execute(
-                    select(DBStrategy)
-                    .filter(DBStrategy.content_id == content_id, DBStrategy.status == "completed")
-                    .order_by(DBStrategy.created_at.desc())
-                )
-                db_strategy = st_res.scalars().first()
-                if db_strategy:
+                if ctx.strategy:
                     has_strategy = True
-                    await log_manager.broadcast("⏩ [Resume] Valid Strategy artifact found. Skipping Strategy step.", agent="ContentPipeline")
+                    await log_manager.broadcast("⏩ [Resume] Valid Strategy artifact loaded. Skipping Strategy step.", agent="ContentPipeline")
 
-                # Check DBScript
-                s_res = await db.execute(
-                    select(DBScript)
-                    .filter(DBScript.content_id == content_id, DBScript.status == "completed")
-                    .order_by(DBScript.created_at.desc())
-                )
-                db_script = s_res.scalars().first()
-                if db_script:
+                if ctx.script:
                     has_script = True
-                    await log_manager.broadcast("⏩ [Resume] Valid Script artifact found. Skipping Script step.", agent="ContentPipeline")
+                    await log_manager.broadcast("⏩ [Resume] Valid Script artifact loaded. Skipping Script step.", agent="ContentPipeline")
 
-                # Check DBScenes
-                sc_res = await db.execute(
-                    select(DBScene)
-                    .filter(DBScene.content_id == content_id, DBScene.status == "completed")
-                    .order_by(DBScene.scene_number)
-                )
-                db_scenes = sc_res.scalars().all()
-                if db_scenes:
+                if ctx.scene_plan:
                     has_scenes = True
-                    await log_manager.broadcast(f"⏩ [Resume] {len(db_scenes)} Scenes found in DB. Skipping Scene Planning step.", agent="ContentPipeline")
+                    await log_manager.broadcast(f"⏩ [Resume] {len(ctx.scene_plan.scenes)} Scenes loaded. Skipping Scene Planning step.", agent="ContentPipeline")
 
-                # Check DBAssets (Video)
+                # Check final video asset
                 a_res = await db.execute(select(DBAsset).filter(DBAsset.content_id == content_id))
                 db_assets = a_res.scalars().all()
                 vid_asset = next((a for a in db_assets if a.asset_type == "video" and os.path.exists(a.path) and os.path.getsize(a.path) > 1000), None)
@@ -157,8 +243,8 @@ class ContentPipeline:
             if not has_scenes:
                 await self._run_scenes_step(ctx, db)
 
-            # STEP 5: MEDIA (Images & Voice)
-            if not has_media and not has_render:
+            # STEP 5: MEDIA (Images & Voice - Granular scene level)
+            if not has_render:
                 await self._run_media_step(ctx, db)
 
             # STEP 6: RENDER (Video Assembly)
@@ -211,7 +297,7 @@ class ContentPipeline:
         research_model = ctx.model_overrides.get("research", compute_config.llm.model)
         agent = ResearchAgent(model=research_model)
         
-        async with AgentTracker(db, ctx.content_id, "RESEARCH", "ResearchAgent", provider=compute_config.llm.provider, model=research_model):
+        async with AgentTracker(db, ctx.content_id, "RESEARCH", "ResearchAgent", provider=compute_config.llm.provider, model=research_model, pipeline_run_id=ctx.pipeline_run_id):
             research_res = await agent.research_topic(
                 topic=ctx.title,
                 target_audience=ctx.target_audience,
@@ -243,7 +329,7 @@ class ContentPipeline:
         agent = StrategyAgent(model=strategy_model)
 
         research_dict = ctx.research.model_dump() if ctx.research else {}
-        async with AgentTracker(db, ctx.content_id, "STRATEGY", "StrategyAgent", provider=compute_config.llm.provider, model=strategy_model):
+        async with AgentTracker(db, ctx.content_id, "STRATEGY", "StrategyAgent", provider=compute_config.llm.provider, model=strategy_model, pipeline_run_id=ctx.pipeline_run_id):
             strategy_res = await agent.develop_strategy(
                 topic=ctx.title,
                 research_data=research_dict,
@@ -272,7 +358,7 @@ class ContentPipeline:
         agent = ScriptAgent(model=script_model)
         
         research_dict = ctx.research.model_dump() if ctx.research else {}
-        async with AgentTracker(db, ctx.content_id, "SCRIPT", "ScriptAgent", provider=compute_config.llm.provider, model=script_model):
+        async with AgentTracker(db, ctx.content_id, "SCRIPT", "ScriptAgent", provider=compute_config.llm.provider, model=script_model, pipeline_run_id=ctx.pipeline_run_id):
             script_res = await agent.generate_script(research_data=research_dict, platform=ctx.platform)
         ctx.script = script_res
 
@@ -299,7 +385,7 @@ class ContentPipeline:
         agent = SceneAgent(model=scene_model)
         
         script_dict = ctx.script.model_dump() if ctx.script else {}
-        async with AgentTracker(db, ctx.content_id, "SCENES", "SceneAgent", provider=compute_config.llm.provider, model=scene_model):
+        async with AgentTracker(db, ctx.content_id, "SCENES", "SceneAgent", provider=compute_config.llm.provider, model=scene_model, pipeline_run_id=ctx.pipeline_run_id):
             scene_plan = await agent.plan_scenes(script_data=script_dict)
 
         # Validate ScenePlan consistency
@@ -333,18 +419,37 @@ class ContentPipeline:
         )
         db_scenes = result.scalars().all()
         
+        # Load existing assets to skip completed scene assets
+        a_res = await db.execute(
+            select(DBAsset).filter(DBAsset.content_id == ctx.content_id, DBAsset.status == "completed")
+        )
+        existing_assets = a_res.scalars().all()
+
         image_agent = ImageAgent()
         voice_agent = VoiceAgent()
 
-        sem = asyncio.Semaphore(2)
+        img_sem = asyncio.Semaphore(compute_config.image_concurrency)
+        tts_sem = asyncio.Semaphore(compute_config.tts_concurrency)
 
         async def _process_scene_assets(scene_num: int, scene_db_id: uuid.UUID, prompt: str, narration: str, scene_dur: float):
-            async with sem:
-                async with AgentTracker(db, ctx.content_id, "ASSETS_IMAGE", "ImageAgent", provider=compute_config.image.provider, model=compute_config.image.model):
-                    img_path = await image_agent.generate_image(prompt=prompt)
-                
-                async with AgentTracker(db, ctx.content_id, "ASSETS_VOICE", "VoiceAgent", provider=compute_config.tts.provider, model=compute_config.tts.model):
-                    audio_path = await voice_agent.generate_voice(text=narration)
+            # Check existing image asset
+            existing_img = next((a for a in existing_assets if a.scene_id == scene_db_id and a.asset_type == "image" and os.path.exists(a.path) and os.path.getsize(a.path) > 100), None)
+            if existing_img:
+                img_path = existing_img.path
+            else:
+                async with img_sem:
+                    async with AgentTracker(db, ctx.content_id, "ASSETS_IMAGE", "ImageAgent", provider=compute_config.image.provider, model=compute_config.image.model, pipeline_run_id=ctx.pipeline_run_id):
+                        img_path = await image_agent.generate_image(prompt=prompt)
+            
+            # Check existing audio asset
+            existing_aud = next((a for a in existing_assets if a.scene_id == scene_db_id and a.asset_type == "audio" and os.path.exists(a.path) and os.path.getsize(a.path) > 100), None)
+            if existing_aud:
+                audio_path = existing_aud.path
+                actual_duration = existing_aud.duration or scene_dur
+            else:
+                async with tts_sem:
+                    async with AgentTracker(db, ctx.content_id, "ASSETS_VOICE", "VoiceAgent", provider=compute_config.tts.provider, model=compute_config.tts.model, pipeline_run_id=ctx.pipeline_run_id):
+                        audio_path = await voice_agent.generate_voice(text=narration)
 
                 actual_duration = scene_dur
                 if audio_path and os.path.exists(audio_path):
@@ -358,7 +463,7 @@ class ContentPipeline:
                     except Exception:
                         pass
 
-                return scene_num, scene_db_id, prompt, img_path, audio_path, actual_duration
+            return scene_num, scene_db_id, prompt, img_path, audio_path, actual_duration, existing_img is not None, existing_aud is not None
 
         tasks = [
             _process_scene_assets(
@@ -372,38 +477,40 @@ class ContentPipeline:
         ]
         media_results = await asyncio.gather(*tasks)
 
-        for scene_num, scene_db_id, prompt, img_path, audio_path, actual_duration in media_results:
+        for scene_num, scene_db_id, prompt, img_path, audio_path, actual_duration, had_img, had_aud in media_results:
             ctx.scene_assets[scene_num] = {}
 
-            img_asset = DBAsset(
-                content_id=ctx.content_id,
-                scene_id=scene_db_id,
-                pipeline_run_id=ctx.pipeline_run_id,
-                asset_type="image",
-                path=img_path,
-                filename=os.path.basename(img_path),
-                mime_type="image/jpeg",
-                provider=compute_config.image.provider,
-                model=compute_config.image.model,
-                prompt=prompt,
-                status="completed"
-            )
-            db.add(img_asset)
+            if not had_img:
+                img_asset = DBAsset(
+                    content_id=ctx.content_id,
+                    scene_id=scene_db_id,
+                    pipeline_run_id=ctx.pipeline_run_id,
+                    asset_type="image",
+                    path=img_path,
+                    filename=os.path.basename(img_path),
+                    mime_type="image/jpeg",
+                    provider=compute_config.image.provider,
+                    model=compute_config.image.model,
+                    prompt=prompt,
+                    status="completed"
+                )
+                db.add(img_asset)
 
-            audio_asset = DBAsset(
-                content_id=ctx.content_id,
-                scene_id=scene_db_id,
-                pipeline_run_id=ctx.pipeline_run_id,
-                asset_type="audio",
-                path=audio_path,
-                filename=os.path.basename(audio_path),
-                mime_type="audio/mp3",
-                duration=actual_duration,
-                provider=compute_config.tts.provider,
-                model=compute_config.tts.model,
-                status="completed"
-            )
-            db.add(audio_asset)
+            if not had_aud:
+                audio_asset = DBAsset(
+                    content_id=ctx.content_id,
+                    scene_id=scene_db_id,
+                    pipeline_run_id=ctx.pipeline_run_id,
+                    asset_type="audio",
+                    path=audio_path,
+                    filename=os.path.basename(audio_path),
+                    mime_type="audio/mp3",
+                    duration=actual_duration,
+                    provider=compute_config.tts.provider,
+                    model=compute_config.tts.model,
+                    status="completed"
+                )
+                db.add(audio_asset)
 
             ctx.scene_assets[scene_num] = {
                 "scene_id": scene_db_id,
@@ -423,7 +530,7 @@ class ContentPipeline:
         scene_video_paths = []
 
         sorted_scenes = sorted(ctx.scene_assets.keys())
-        async with AgentTracker(db, ctx.content_id, "RENDER", "VideoAgent", provider="ffmpeg", model="local-h264"):
+        async with AgentTracker(db, ctx.content_id, "RENDER", "VideoAgent", provider="ffmpeg", model="local-h264", pipeline_run_id=ctx.pipeline_run_id):
             for sc_num in sorted_scenes:
                 data = ctx.scene_assets[sc_num]
                 img_path = data["image_path"]
@@ -464,7 +571,7 @@ class ContentPipeline:
         await update_workflow_state(db, ctx.content_id, WorkflowState.QUALITY_CHECK)
         ctx.current_state = WorkflowState.QUALITY_CHECK
 
-        async with AgentTracker(db, ctx.content_id, "QUALITY_CHECK", "QualityAgent", provider="internal", model="evaluator-v1"):
+        async with AgentTracker(db, ctx.content_id, "QUALITY_CHECK", "QualityAgent", provider="internal", model="evaluator-v1", pipeline_run_id=ctx.pipeline_run_id):
             quality_res = await self.quality_agent.evaluate(
                 script=ctx.script,
                 scene_plan=ctx.scene_plan,

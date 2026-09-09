@@ -27,7 +27,9 @@ async def init_db():
             "ALTER TABLE strategies ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
             "ALTER TABLE scripts ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
             "ALTER TABLE scenes ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
-            "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;"
+            "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
+            "ALTER TABLE content ADD COLUMN IF NOT EXISTS batch_id VARCHAR;",
+            "ALTER TABLE pipeline_jobs ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR;"
         ]
         for stmt in alter_statements:
             try:

@@ -17,7 +17,8 @@ class AgentTracker:
         agent_name: str,
         provider: str = "ollama",
         model: str = "llama3:latest",
-        prompt_version: int = 1
+        prompt_version: int = 1,
+        pipeline_run_id: Optional[uuid.UUID] = None
     ):
         self.db = db
         self.content_id = content_id
@@ -26,6 +27,7 @@ class AgentTracker:
         self.provider = provider
         self.model = model
         self.prompt_version = prompt_version
+        self.pipeline_run_id = pipeline_run_id
         self.start_time: float = 0.0
         self.duration_seconds: float = 0.0
         self.status = "started"
@@ -50,6 +52,7 @@ class AgentTracker:
                 agent_run = DBAgentRun(
                     id=uuid.uuid4(),
                     content_id=self.content_id,
+                    pipeline_run_id=self.pipeline_run_id,
                     stage=self.stage,
                     agent=self.agent_name,
                     provider=self.provider,

@@ -9,6 +9,7 @@ from app.db.database import get_db, AsyncSessionLocal
 from app.db.models import (
     Content as DBContent,
     ContentIdea as DBContentIdea,
+    ContentBatch as DBContentBatch,
     Research as DBResearch,
     Script as DBScript,
     Scene as DBScene,
@@ -17,8 +18,16 @@ from app.db.models import (
 from app.workflows.content_pipeline import ContentPipeline
 from app.workflows.workflow_state import WorkflowState, update_workflow_state
 from app.workflows.worker import job_manager
+from app.agents.batch_strategy import BatchStrategyAgent
 
 router = APIRouter()
+
+class PipelineRequest(BaseModel):
+    content_id: uuid.UUID
+    model_overrides: Optional[Dict[str, str]] = None
+    sync: bool = False
+    resume: bool = True
+    idempotency_key: Optional[str] = None
 
 class BatchPipelineRequest(BaseModel):
     topic: str = Field(..., description="Topic or prompt for content batch generation")
@@ -32,6 +41,7 @@ async def trigger_content_pipeline(
     model_overrides: Optional[Dict[str, str]] = None,
     sync: bool = False,
     resume: bool = True,
+    idempotency_key: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(DBContent).filter(DBContent.id == content_id))
@@ -42,7 +52,8 @@ async def trigger_content_pipeline(
     job = await job_manager.create_job(
         content_id=str(content_id),
         model_overrides=model_overrides,
-        resume=resume
+        resume=resume,
+        idempotency_key=idempotency_key
     )
 
     if sync:
@@ -69,14 +80,30 @@ async def trigger_batch_pipeline(
     db: AsyncSession = Depends(get_db)
 ):
     batch_id = f"batch_{uuid.uuid4().hex[:8]}"
+
+    # Save ContentBatch record in DB
+    db_batch = DBContentBatch(
+        id=batch_id,
+        topic=req.topic,
+        requested_count=req.count,
+        status="running"
+    )
+    db.add(db_batch)
+    await db.commit()
+
+    # Formulate strategic angles using BatchStrategyAgent
+    batch_agent = BatchStrategyAgent()
+    platform = req.platforms[0] if req.platforms else "youtube_shorts"
+    batch_plan = await batch_agent.generate_batch_plan(topic=req.topic, count=req.count, platform=platform)
+
     queued_jobs = []
 
-    for i in range(req.count):
-        idea_title = f"{req.topic} - Variation {i+1}"
+    for variation in batch_plan.variations:
         idea = DBContentIdea(
-            title=idea_title,
+            title=variation.title,
             topic=req.topic,
-            platform=req.platforms[0] if req.platforms else "youtube_shorts",
+            target_audience=variation.target_audience,
+            platform=platform,
             status="approved"
         )
         db.add(idea)
@@ -85,8 +112,9 @@ async def trigger_batch_pipeline(
 
         content = DBContent(
             idea_id=idea.id,
-            title=idea_title,
-            platform=req.platforms[0] if req.platforms else "youtube_shorts",
+            batch_id=batch_id,
+            title=variation.title,
+            platform=platform,
             status=WorkflowState.IDEA.value
         )
         db.add(content)
@@ -102,7 +130,8 @@ async def trigger_batch_pipeline(
         queued_jobs.append({
             "job_id": job.job_id,
             "content_id": str(content.id),
-            "title": idea_title
+            "title": variation.title,
+            "angle": variation.angle
         })
 
     return {

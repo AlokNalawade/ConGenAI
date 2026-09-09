@@ -29,10 +29,24 @@ class ContentIdea(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     contents = relationship("Content", back_populates="idea")
 
+class ContentBatch(Base):
+    __tablename__ = "content_batches"
+    id = Column(String, primary_key=True)
+    topic = Column(String, nullable=False)
+    requested_count = Column(Integer, default=1)
+    status = Column(String, default="queued")
+    successful_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    contents = relationship("Content", back_populates="batch")
+
 class Content(Base):
     __tablename__ = "content"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    idea_id = Column(UUID(as_uuid=True), ForeignKey("content_ideas.id"))
+    idea_id = Column(UUID(as_uuid=True), ForeignKey("content_ideas.id"), nullable=True)
+    batch_id = Column(String, ForeignKey("content_batches.id"), nullable=True)
     title = Column(String)
     description = Column(String)
     content_type = Column(String)
@@ -43,6 +57,7 @@ class Content(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     idea = relationship("ContentIdea", back_populates="contents")
+    batch = relationship("ContentBatch", back_populates="contents")
     research = relationship("Research", back_populates="content", uselist=False)
     strategy = relationship("Strategy", back_populates="content", uselist=False)
     scripts = relationship("Script", back_populates="content")
@@ -55,6 +70,7 @@ class PipelineJobDB(Base):
     __tablename__ = "pipeline_jobs"
     id = Column(String, primary_key=True)
     content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
+    idempotency_key = Column(String, nullable=True)
     status = Column(String, default="queued")
     current_stage = Column(String, default="NEW")
     progress_percent = Column(Integer, default=0)

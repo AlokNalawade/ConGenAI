@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 import uuid
 from app.workflows.workflow_state import WorkflowState
-from app.models.ai_contracts import ResearchResult, ScriptResult, ScenePlan, QualityResult
+from app.models.ai_contracts import ResearchResult, StrategyResult, ScriptResult, ScenePlan, QualityResult
 
 @dataclass
 class WorkflowContext:
@@ -13,10 +13,12 @@ class WorkflowContext:
     topic: str = "General"
     target_audience: str = "General"
     platform: str = "Shorts"
+    pipeline_run_id: Optional[uuid.UUID] = None
     model_overrides: Dict[str, str] = field(default_factory=dict)
     
     # Execution outputs
     research: Optional[ResearchResult] = None
+    strategy: Optional[StrategyResult] = None
     script: Optional[ScriptResult] = None
     scene_plan: Optional[ScenePlan] = None
     scene_assets: Dict[int, Dict[str, Any]] = field(default_factory=dict)
