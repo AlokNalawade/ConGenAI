@@ -19,7 +19,7 @@
             <nav>
                 <a href="#" id="nav-dashboard" class="active" onclick="switchTab(this, 'dashboard')"><i class="ri-dashboard-line"></i> Dashboard</a>
                 <a href="#" id="nav-ideas" onclick="switchTab(this, 'ideas')"><i class="ri-lightbulb-line"></i> Ideas</a>
-                <a href="#" id="nav-pipeline" onclick="switchTab(this, 'pipeline')"><i class="ri-kanban-view"></i> Pipeline</a>
+                <a href="#" id="nav-pipeline" onclick="switchTab(this, 'pipeline')"><i class="ri-search-eye-line"></i> Inspector</a>
                 <a href="#" id="nav-videos" onclick="switchTab(this, 'videos')"><i class="ri-video-line"></i> Videos</a>
                 <a href="#" id="nav-settings" onclick="switchTab(this, 'settings')"><i class="ri-settings-4-line"></i> Settings</a>
             </nav>
@@ -142,12 +142,23 @@
 
             <!-- TAB 3: PIPELINE VIEW -->
             <div class="dashboard-content" id="view-pipeline" style="display: none;">
-                <div style="margin-bottom: 24px;">
-                    <h2 class="section-title" style="margin-bottom: 4px;">Full Kanban Pipeline</h2>
-                    <p style="color: var(--text-muted); font-size: 14px;">Track live progress across all production stages.</p>
-                </div>
-                <div class="kanban-board" id="full-kanban-board">
-                    <!-- Cloned or rendered Kanban -->
+                <div style="display: grid; grid-template-columns: 260px 1fr; gap: 20px; height: calc(100vh - 120px);">
+
+                    <!-- Left: Content list -->
+                    <div class="glass" style="border-radius: 16px; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">Select Content</div>
+                        <div id="inspector-list" style="display: flex; flex-direction: column; gap: 6px;">
+                            <div style="color: var(--text-muted); font-size: 13px; padding: 12px 0;">Loading...</div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Stage breakdown -->
+                    <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 14px;" id="inspector-detail">
+                        <div class="glass" style="border-radius: 16px; padding: 32px; text-align: center; color: var(--text-muted);">
+                            <i class="ri-search-eye-line" style="font-size: 40px; display: block; margin-bottom: 12px; opacity: 0.4;"></i>
+                            <p style="font-size: 14px;">Select a content item from the left to inspect its pipeline stages.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 

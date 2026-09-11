@@ -31,8 +31,10 @@ function switchTab(linkEl, tabName) {
         }
     });
 
-    if (tabName === 'dashboard' || tabName === 'pipeline') {
+    if (tabName === 'dashboard') {
         fetchPipeline();
+    } else if (tabName === 'pipeline') {
+        loadInspectorView();
     } else if (tabName === 'ideas') {
         loadIdeasView();
     } else if (tabName === 'videos') {
@@ -886,4 +888,301 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', setupDraggableTerminal);
 } else {
     setupDraggableTerminal();
+}
+
+// ============================================================
+// PIPELINE INSPECTOR
+// ============================================================
+
+let _inspectorContentId = null;
+let _inspectorPollTimer = null;
+
+async function loadInspectorView() {
+    // Populate the left content list using the same endpoint as the dashboard
+    try {
+        const res = await fetch(`${API_BASE}/content/`);
+        const items = res.ok ? await res.json() : [];
+        const listEl = document.getElementById('inspector-list');
+        if (!listEl) return;
+
+        if (!items.length) {
+            listEl.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; padding: 8px 0;">No content yet. Create an idea to get started.</div>';
+            return;
+        }
+
+        listEl.innerHTML = items.map(c => {
+            const statusColor = {
+                awaiting_approval: '#fdcb6e',
+                failed: '#ff7675',
+                approved: '#00b894',
+                published: '#00cec9',
+            }[c.status] || '#a29bfe';
+            const isActive = c.id === _inspectorContentId;
+            return `
+                <div onclick="inspectContent('${c.id}')"
+                     style="padding: 10px 12px; border-radius: 10px; cursor: pointer;
+                            background: ${isActive ? 'rgba(108,92,231,0.2)' : 'rgba(255,255,255,0.04)'};
+                            border: 1px solid ${isActive ? 'rgba(162,155,254,0.5)' : 'rgba(255,255,255,0.06)'};
+                            transition: all 0.15s;">
+                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 4px; line-height: 1.3;">
+                        ${escapeHtml(c.title || 'Untitled')}
+                    </div>
+                    <div style="font-size: 11px; color: ${statusColor};">
+                        ● ${c.status || 'unknown'}
+                    </div>
+                </div>`;
+        }).join('');
+    } catch (e) {
+        console.error('Inspector list error:', e);
+    }
+}
+
+async function inspectContent(contentId) {
+    _inspectorContentId = contentId;
+
+    // Highlight selected item in list
+    loadInspectorView();
+
+    // Clear auto-refresh
+    if (_inspectorPollTimer) clearInterval(_inspectorPollTimer);
+
+    await _renderInspector(contentId);
+
+    // Auto-refresh if pipeline is still running
+    _inspectorPollTimer = setInterval(async () => {
+        const detailEl = document.getElementById('inspector-detail');
+        if (!detailEl || _inspectorContentId !== contentId) {
+            clearInterval(_inspectorPollTimer);
+            return;
+        }
+        await _renderInspector(contentId, true);
+    }, 3500);
+}
+
+async function _renderInspector(contentId, isRefresh = false) {
+    const detailEl = document.getElementById('inspector-detail');
+    if (!detailEl) return;
+
+    if (!isRefresh) {
+        detailEl.innerHTML = `<div class="glass" style="border-radius:16px;padding:24px;text-align:center;color:var(--text-muted);">
+            <i class="ri-loader-4-line spin" style="font-size:28px;display:block;margin-bottom:8px;"></i>Loading...</div>`;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/content/${contentId}/inspect`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const d = await res.json();
+
+        // Stop polling if pipeline is done or idle
+        const running = d.pipeline_run_status === 'running' || (d.active_job && d.active_job.status === 'running');
+        if (!running && isRefresh) {
+            clearInterval(_inspectorPollTimer);
+        }
+
+        detailEl.innerHTML = _buildInspectorHTML(d, contentId);
+    } catch (e) {
+        console.error('Inspector render error:', e);
+        if (!isRefresh) {
+            detailEl.innerHTML = `<div class="glass" style="border-radius:16px;padding:24px;color:#ff7675;">
+                Failed to load inspector data: ${e.message}</div>`;
+        }
+    }
+}
+
+function _buildInspectorHTML(d, contentId) {
+    const st = d.stages;
+    const job = d.active_job;
+    const currentStage = d.pipeline_run_stage || '';
+    const isRunning = d.pipeline_run_status === 'running' || (job && job.status === 'running');
+    const isFailed = d.pipeline_run_status === 'failed';
+
+    const stageIcon = s => ({
+        done: '<i class="ri-checkbox-circle-fill" style="color:#00b894;"></i>',
+        running: '<i class="ri-loader-4-line spin" style="color:#a29bfe;"></i>',
+        failed: '<i class="ri-close-circle-fill" style="color:#ff7675;"></i>',
+        pending: '<i class="ri-time-line" style="opacity:0.35;"></i>',
+    }[s]);
+
+    function stageStatus(done, stageTag) {
+        if (done) return 'done';
+        const tags = { research:'RESEARCH', strategy:'STRATEGY', script:'SCRIPT', scenes:'SCENES', media:'GENERATING_ASSETS', render:'RENDER' };
+        if (isRunning && currentStage && currentStage.includes(tags[stageTag] || stageTag.toUpperCase())) return 'running';
+        if (isFailed && !done) return 'failed';
+        return 'pending';
+    }
+
+    function rerunBtn(stage, label) {
+        return `<button onclick="rerunFromStage('${contentId}','${stage}')"
+                style="padding:5px 12px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);
+                       background:rgba(255,255,255,0.06);color:#fff;cursor:pointer;display:flex;align-items:center;gap:5px;">
+                <i class="ri-refresh-line"></i> ${label}</button>`;
+    }
+
+    function stageCard(icon, title, stageKey, done, body) {
+        const s = stageStatus(done, stageKey);
+        const borderColor = { done:'rgba(0,184,148,0.3)', running:'rgba(162,155,254,0.5)', failed:'rgba(255,118,117,0.4)', pending:'rgba(255,255,255,0.06)' }[s];
+        return `
+        <div class="glass" style="border-radius:14px;padding:18px;border:1px solid ${borderColor};">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${done ? '14px' : '0'};">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:18px;">${icon}</span>
+                    <span style="font-weight:700;font-size:14px;">${title}</span>
+                    <span style="font-size:18px;">${stageIcon(s)}</span>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    ${done || s==='failed' ? rerunBtn(stageKey, 'Re-run') : ''}
+                </div>
+            </div>
+            ${done ? body : (s === 'running' ? '<div style="font-size:12px;color:#a29bfe;margin-top:10px;"><i class="ri-loader-4-line spin"></i> Running now...</div>' : '')}
+        </div>`;
+    }
+
+    function pill(label, value) {
+        if (!value) return '';
+        return `<span style="display:inline-block;padding:3px 9px;background:rgba(255,255,255,0.07);border-radius:100px;font-size:11px;color:var(--text-muted);margin:2px;">${label}: <strong style="color:#fff;">${escapeHtml(String(value))}</strong></span>`;
+    }
+
+    function jsonList(arr) {
+        if (!arr || !arr.length) return '';
+        return `<ul style="margin:8px 0 0 0;padding-left:18px;font-size:12px;color:var(--text-muted);">
+            ${arr.slice(0,6).map(x => `<li style="margin-bottom:3px;">${escapeHtml(String(x))}</li>`).join('')}
+            ${arr.length > 6 ? `<li style="opacity:0.5;">+${arr.length-6} more</li>` : ''}
+        </ul>`;
+    }
+
+    // --- Research ---
+    const researchBody = `
+        ${st.research.summary ? `<p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">${escapeHtml(st.research.summary)}</p>` : ''}
+        ${jsonList(st.research.key_points)}
+        ${st.research.hooks && st.research.hooks.length ? `
+            <div style="margin-top:10px;font-size:11px;font-weight:700;color:#a29bfe;text-transform:uppercase;letter-spacing:0.06em;">Hook Angles</div>
+            ${jsonList(st.research.hooks)}` : ''}`;
+
+    // --- Strategy ---
+    const strategyBody = `
+        ${st.strategy.content_angle ? `<div style="font-size:13px;margin-bottom:6px;"><strong>Angle:</strong> ${escapeHtml(st.strategy.content_angle)}</div>` : ''}
+        ${st.strategy.target_audience ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;"><strong>Audience:</strong> ${escapeHtml(st.strategy.target_audience)}</div>` : ''}
+        ${st.strategy.hook_strategy ? `<div style="font-size:12px;color:var(--text-muted);"><strong>Hook Strategy:</strong> ${escapeHtml(st.strategy.hook_strategy)}</div>` : ''}`;
+
+    // --- Script ---
+    const scriptBody = `
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+            ${pill('v', st.script.version)} ${pill('~', (st.script.estimated_duration || '') + 's')} ${pill('words', st.script.word_count)}
+        </div>
+        <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;font-size:12px;line-height:1.6;">
+            <div style="color:#fdcb6e;font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Hook</div>
+            <div style="color:#fff;margin-bottom:10px;">${escapeHtml(st.script.hook || '')}</div>
+            <div style="color:#a29bfe;font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Body</div>
+            <div style="color:var(--text-muted);margin-bottom:10px;white-space:pre-wrap;">${escapeHtml(st.script.body || '')}</div>
+            <div style="color:#00b894;font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">CTA</div>
+            <div style="color:#fff;">${escapeHtml(st.script.cta || '')}</div>
+        </div>`;
+
+    // --- Scenes ---
+    const scenesBody = st.scenes.items.map(sc => {
+        const imgAsset = sc.image_asset;
+        const imgHtml = imgAsset
+            ? `<div style="width:72px;height:72px;flex-shrink:0;border-radius:8px;overflow:hidden;background:#000;">
+                   <img src="${getAssetUrl(imgAsset.path)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'">
+               </div>`
+            : `<div style="width:72px;height:72px;flex-shrink:0;border-radius:8px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;color:var(--text-muted);">
+                   <i class="ri-image-line"></i>
+               </div>`;
+        const audioHtml = sc.audio_asset
+            ? `<audio controls style="width:100%;height:28px;margin-top:6px;" src="${getAssetUrl(sc.audio_asset.path)}"></audio>`
+            : '';
+        return `
+            <div style="display:flex;gap:12px;padding:10px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.05);">
+                ${imgHtml}
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:11px;font-weight:700;color:#a29bfe;margin-bottom:4px;">Scene ${sc.scene_number} · ${sc.duration || '?'}s · ${sc.transition || 'fade'}</div>
+                    <div style="font-size:12px;color:#fff;margin-bottom:4px;">${escapeHtml(sc.narration || '')}</div>
+                    <div style="font-size:11px;color:var(--text-muted);">🎨 ${escapeHtml(sc.visual_prompt || sc.visual_description || '')}</div>
+                    ${audioHtml}
+                </div>
+            </div>`;
+    }).join('');
+
+    // --- Final video ---
+    const fv = st.render.final_video;
+    const renderBody = fv
+        ? `<video controls style="width:100%;max-height:300px;border-radius:10px;background:#000;"
+               src="${getAssetUrl(fv.path)}?t=${Date.now()}"></video>`
+        : '';
+
+    // --- Status bar ---
+    let statusBar = '';
+    if (job) {
+        statusBar = `
+        <div class="glass" style="border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;border:1px solid rgba(162,155,254,0.3);">
+            <i class="ri-loader-4-line spin" style="color:#a29bfe;font-size:18px;"></i>
+            <div>
+                <div style="font-size:13px;font-weight:700;color:#a29bfe;">${job.current_stage || 'Running'}</div>
+                <div style="font-size:11px;color:var(--text-muted);">Progress: ${job.progress_percent || 0}% · Job: ${job.job_id || ''}</div>
+            </div>
+        </div>`;
+    } else if (isFailed) {
+        statusBar = `
+        <div class="glass" style="border-radius:12px;padding:12px 16px;border:1px solid rgba(255,118,117,0.4);">
+            <div style="font-size:13px;font-weight:700;color:#ff7675;">⚠ Pipeline failed</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${escapeHtml(d.pipeline_run_error || 'Unknown error')}</div>
+        </div>`;
+    }
+
+    // --- Bottom action bar ---
+    const actionBar = d.status === 'awaiting_approval' ? `
+        <div class="glass" style="border-radius:14px;padding:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border:1px solid rgba(0,184,148,0.3);">
+            <span style="font-size:13px;font-weight:600;color:#fff;flex:1;">Ready for review</span>
+            <button onclick="openHitlInspector('${contentId}')" style="padding:8px 16px;background:linear-gradient(135deg,#00b894,#00cec9);border:none;border-radius:10px;color:#fff;font-weight:700;cursor:pointer;">
+                <i class="ri-eye-line"></i> Review &amp; Approve
+            </button>
+            <button onclick="rerunFromStage('${contentId}','media')" style="padding:8px 14px;background:rgba(253,203,110,0.15);border:1px solid rgba(253,203,110,0.3);border-radius:10px;color:#fdcb6e;cursor:pointer;font-size:13px;">
+                🖼️ Regen Visuals
+            </button>
+            <button onclick="rerunFromStage('${contentId}','research')" style="padding:8px 14px;background:rgba(255,118,117,0.1);border:1px solid rgba(255,118,117,0.3);border-radius:10px;color:#ff7675;cursor:pointer;font-size:13px;">
+                🔄 Full Regen
+            </button>
+        </div>` : '';
+
+    return [
+        statusBar,
+        `<div style="display:flex;align-items:baseline;gap:10px;">
+            <h2 style="font-size:18px;font-weight:800;color:#fff;margin:0;">${escapeHtml(d.title || 'Untitled')}</h2>
+            <span style="font-size:12px;color:var(--text-muted);">${d.status || ''}</span>
+            ${d.quality_score != null ? `<span style="font-size:12px;color:#fdcb6e;">⭐ ${d.quality_score}</span>` : ''}
+        </div>`,
+        stageCard('🔬', 'Research', 'research', st.research.done, researchBody),
+        stageCard('🎯', 'Strategy', 'strategy', st.strategy.done, strategyBody),
+        stageCard('📝', 'Script', 'script', st.script.done, scriptBody),
+        stageCard(`🎬 Scenes (${st.scenes.count})`, '', 'scenes', st.scenes.done, scenesBody),
+        stageCard('🖼️', `Media · ${st.media.image_count} images · ${st.media.audio_count} audio clips`, 'media', st.media.done, ''),
+        stageCard('🎥', 'Final Video', 'render', st.render.done, renderBody),
+        actionBar,
+    ].filter(Boolean).join('');
+}
+
+async function rerunFromStage(contentId, stage) {
+    const stageLabels = {
+        research: 'Research (and everything after)',
+        strategy: 'Strategy (and everything after)',
+        script:   'Script (and scenes + media)',
+        scenes:   'Scene plan (and media)',
+        media:    'Images, audio, and video only',
+        render:   'Final video render only',
+    };
+    const label = stageLabels[stage] || stage;
+    if (!confirm(`Re-run from: ${label}?\n\nAll downstream pipeline data will be cleared and re-generated.`)) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/content/${contentId}/rerun-from/${stage}`, { method: 'POST' });
+        if (res.ok) {
+            await loadInspectorView();
+            await inspectContent(contentId);
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert(`Re-run failed: ${err.detail || res.statusText}`);
+        }
+    } catch (e) {
+        alert(`Network error: ${e.message}`);
+    }
 }
