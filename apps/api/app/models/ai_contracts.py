@@ -98,6 +98,7 @@ def validate_ai_response(raw_input: Any, model_cls: Type[T]) -> T:
     """
     Safely validates and parses LLM raw responses into strongly-typed Pydantic contracts.
     Accepts dicts, strings (JSON), or existing model instances.
+    Coerces dicts/lists into strings when LLMs output structured objects for string fields.
     """
     if isinstance(raw_input, model_cls):
         return raw_input
@@ -105,7 +106,15 @@ def validate_ai_response(raw_input: Any, model_cls: Type[T]) -> T:
     data = raw_input
     if isinstance(raw_input, str):
         try:
-            data = json.loads(raw_input)
+            cleaned_str = raw_input.strip()
+            if cleaned_str.startswith("```json"):
+                cleaned_str = cleaned_str[7:]
+            elif cleaned_str.startswith("```"):
+                cleaned_str = cleaned_str[3:]
+            if cleaned_str.endswith("```"):
+                cleaned_str = cleaned_str[:-3]
+            cleaned_str = cleaned_str.strip()
+            data = json.loads(cleaned_str)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM JSON output string: {e}")
             raise ValueError(f"Invalid JSON string returned by LLM: {raw_input[:100]}...") from e
@@ -113,9 +122,34 @@ def validate_ai_response(raw_input: Any, model_cls: Type[T]) -> T:
     if not isinstance(data, dict):
         raise ValueError(f"Expected dict or JSON string for {model_cls.__name__}, got {type(data)}")
 
+    # Pre-process & sanitize fields for specific models
+    if model_cls == StrategyResult:
+        if isinstance(data.get("target_audience_analysis"), (dict, list)):
+            data["target_audience_analysis"] = json.dumps(data["target_audience_analysis"])
+        if isinstance(data.get("hook_strategy"), (dict, list)):
+            data["hook_strategy"] = json.dumps(data["hook_strategy"])
+        if isinstance(data.get("format_guidelines"), list):
+            sanitized_fg = []
+            for item in data["format_guidelines"]:
+                if isinstance(item, dict):
+                    sanitized_fg.append(", ".join(f"{k}: {v}" for k, v in item.items()))
+                else:
+                    sanitized_fg.append(str(item))
+            data["format_guidelines"] = sanitized_fg
+    elif model_cls == ResearchResult:
+        for field_name in ["summary"]:
+            if isinstance(data.get(field_name), (dict, list)):
+                data[field_name] = json.dumps(data[field_name])
+        for list_field in ["key_points", "statistics", "sources", "competitor_analysis", "hooks", "warnings"]:
+            if isinstance(data.get(list_field), list):
+                data[list_field] = [json.dumps(x) if isinstance(x, (dict, list)) else str(x) for x in data[list_field]]
+    elif model_cls == ScriptResult:
+        for str_field in ["hook", "body", "cta"]:
+            if isinstance(data.get(str_field), (dict, list)):
+                data[str_field] = json.dumps(data[str_field])
+
     try:
         return model_cls.model_validate(data)
     except ValidationError as ve:
         logger.warning(f"Validation error parsing {model_cls.__name__}: {ve}")
-        # If strict validation fails, attempt best-effort field coercion or raise
         raise ValueError(f"LLM output failed schema contract for {model_cls.__name__}: {ve}") from ve
