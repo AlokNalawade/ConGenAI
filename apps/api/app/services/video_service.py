@@ -3,6 +3,7 @@ import uuid
 import shutil
 import ffmpeg
 import imageio_ffmpeg
+from app.services.subtitle_service import SubtitleService
 
 class VideoService:
     def __init__(self):
@@ -19,6 +20,20 @@ class VideoService:
             input_image = ffmpeg.input(image_path, loop=1)
             input_audio = ffmpeg.input(audio_path)
             
+            vf_filters = ['scale=1080:1920', 'format=yuv420p']
+            if text and text.strip():
+                try:
+                    ass_dir = os.path.join("data", "assets", "subtitles")
+                    os.makedirs(ass_dir, exist_ok=True)
+                    ass_path = os.path.join(ass_dir, f"sub_{uuid.uuid4().hex[:8]}.ass")
+                    scene_dur = float(duration) if duration and float(duration) > 0 else 5.0
+                    SubtitleService.generate_ass_subtitle(text, scene_dur, ass_path)
+                    if os.path.exists(ass_path):
+                        escaped_ass = os.path.abspath(ass_path).replace(":", "\\:").replace("'", "\\'")
+                        vf_filters.append(f"subtitles='{escaped_ass}'")
+                except Exception as sub_err:
+                    print(f"Subtitle rendering warning: {sub_err}")
+
             output_kwargs = {
                 'vcodec': 'libx264',
                 'acodec': 'aac',
@@ -27,7 +42,7 @@ class VideoService:
                 'r': 25,
                 'af': 'volume=1.5',
                 'pix_fmt': 'yuv420p',
-                'vf': 'scale=1080:1920,format=yuv420p'
+                'vf': ','.join(vf_filters)
             }
             if duration and float(duration) > 0:
                 output_kwargs['t'] = float(duration)

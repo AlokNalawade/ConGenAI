@@ -14,11 +14,33 @@ class MockTTSProvider(BaseTTSProvider):
         voice: Optional[str] = None
     ) -> str:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        words = len(text.split())
+        import shutil, imageio_ffmpeg
+        ffmpeg_bin = shutil.which("ffmpeg") or imageio_ffmpeg.get_ffmpeg_exe()
+
+        # Try native macOS 'say' command for realistic spoken narration audio
+        if shutil.which("say") and text and text.strip():
+            try:
+                aiff_tmp = output_path + f"_{os.urandom(4).hex()}.aiff"
+                subprocess.run(["say", "-o", aiff_tmp, text], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cmd = [
+                    ffmpeg_bin, "-y", "-i", aiff_tmp,
+                    "-acodec", "libmp3lame", "-q:a", "2", output_path
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                if os.path.exists(aiff_tmp):
+                    os.remove(aiff_tmp)
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 100:
+                    logger.info(f"Generated spoken audio track via macOS say at {output_path}")
+                    return output_path
+            except Exception as e:
+                logger.warning(f"Native macOS say TTS generation failed: {e}")
+
+        # Fallback to anullsrc silent audio track if say is unavailable or fails
+        words = len(text.split()) if text else 1
         duration = max(2.5, words * 0.35)
 
         cmd = [
-            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            ffmpeg_bin, "-y", "-f", "lavfi", "-i",
             f"anullsrc=r=44100:cl=stereo", "-t", str(duration),
             "-q:a", "9", "-acodec", "libmp3lame", output_path
         ]
@@ -26,7 +48,6 @@ class MockTTSProvider(BaseTTSProvider):
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             logger.info(f"Generated mock silent audio track ({duration:.1f}s) at {output_path}")
         except Exception:
-            # Native Python WAV fallback if FFmpeg is unavailable
             import wave, struct
             wav_path = output_path if output_path.endswith(".wav") else output_path + ".wav"
             sample_rate = 22050

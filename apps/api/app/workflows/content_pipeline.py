@@ -512,10 +512,12 @@ class ContentPipeline:
                 )
                 db.add(audio_asset)
 
+            scene_record = next((sc for sc in db_scenes if sc.scene_number == scene_num), None)
             ctx.scene_assets[scene_num] = {
                 "scene_id": scene_db_id,
                 "duration": actual_duration,
-                "onscreen_text": next((sc.onscreen_text for sc in db_scenes if sc.scene_number == scene_num), None),
+                "onscreen_text": scene_record.onscreen_text if scene_record else None,
+                "narration": scene_record.narration if scene_record else None,
                 "image_path": img_path,
                 "audio_path": audio_path
             }
@@ -535,13 +537,13 @@ class ContentPipeline:
                 data = ctx.scene_assets[sc_num]
                 img_path = data["image_path"]
                 audio_path = data["audio_path"]
-                onscreen = data.get("onscreen_text")
+                display_text = data.get("onscreen_text") or data.get("narration")
                 duration = data.get("duration", 5.0)
 
                 scene_vid = await video_agent.assemble_scene(
                     image_path=img_path,
                     audio_path=audio_path,
-                    text=onscreen,
+                    text=display_text,
                     duration=duration
                 )
                 scene_video_paths.append(scene_vid)
