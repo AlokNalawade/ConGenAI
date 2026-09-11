@@ -32,16 +32,34 @@ logger = logging.getLogger(__name__)
 _redis_pool: Optional[ArqRedis] = None
 
 
+async def is_redis_available() -> bool:
+    """Check if Redis server is actively listening on port in < 5ms."""
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(settings.REDIS_HOST, settings.REDIS_PORT),
+            timeout=0.2
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
 async def get_redis_pool() -> ArqRedis:
     """Get or create the arq Redis connection pool."""
     global _redis_pool
     if _redis_pool is None:
-        _redis_pool = await create_pool(
-            RedisSettings(
-                host=settings.REDIS_HOST,
-                port=settings.REDIS_PORT,
-                database=settings.REDIS_DB,
-            )
+        _redis_pool = await asyncio.wait_for(
+            create_pool(
+                RedisSettings(
+                    host=settings.REDIS_HOST,
+                    port=settings.REDIS_PORT,
+                    database=settings.REDIS_DB,
+                    conn_retries=0,
+                )
+            ),
+            timeout=1.0
         )
     return _redis_pool
 
@@ -65,20 +83,37 @@ async def enqueue_pipeline_job(
 ) -> str:
     """
     Enqueue a pipeline job into the Redis queue.
-    Called by the API layer after creating the PipelineJobDB record.
-    Returns the arq job ID.
+    If Redis is offline, instantly (< 5ms) falls back to local background worker task.
+    Returns the job ID.
     """
-    pool = await get_redis_pool()
-    arq_job = await pool.enqueue_job(
-        "execute_pipeline_job",
-        job_id=job_id,
-        content_id=content_id,
-        pipeline_run_id=pipeline_run_id,
-        model_overrides=model_overrides or {},
-        resume=resume,
+    if await is_redis_available():
+        try:
+            pool = await get_redis_pool()
+            arq_job = await pool.enqueue_job(
+                "execute_pipeline_job",
+                job_id=job_id,
+                content_id=content_id,
+                pipeline_run_id=pipeline_run_id,
+                model_overrides=model_overrides or {},
+                resume=resume,
+            )
+            logger.info(f"Enqueued pipeline job {job_id} to Redis (arq_id={arq_job.job_id})")
+            return arq_job.job_id
+        except Exception as e:
+            logger.warning(f"Redis enqueue failed ({e}), falling back to background worker task...")
+
+    logger.info(f"Executing job {job_id} via background worker task...")
+    asyncio.create_task(
+        execute_pipeline_job(
+            ctx={},
+            job_id=job_id,
+            content_id=content_id,
+            pipeline_run_id=pipeline_run_id,
+            model_overrides=model_overrides or {},
+            resume=resume,
+        )
     )
-    logger.info(f"Enqueued pipeline job {job_id} to Redis (arq_id={arq_job.job_id})")
-    return arq_job.job_id
+    return job_id
 
 
 # --- Worker function ---
