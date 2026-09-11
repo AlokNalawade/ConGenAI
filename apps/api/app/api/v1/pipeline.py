@@ -29,6 +29,12 @@ class PipelineRequest(BaseModel):
     idempotency_key: Optional[str] = None
 
 
+class PipelineTriggerBody(BaseModel):
+    model_overrides: Optional[Dict[str, str]] = None
+    resume: bool = True
+    idempotency_key: Optional[str] = None
+
+
 class BatchPipelineRequest(BaseModel):
     topic: str = Field(..., description="Topic or prompt for content batch generation")
     count: int = Field(default=3, ge=1, le=10, description="Number of content items to generate")
@@ -39,15 +45,17 @@ class BatchPipelineRequest(BaseModel):
 @router.post("/pipeline", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_content_pipeline(
     content_id: uuid.UUID,
-    model_overrides: Optional[Dict[str, str]] = None,
-    resume: bool = True,
-    idempotency_key: Optional[str] = None,
+    body: Optional[PipelineTriggerBody] = None,
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(DBContent).filter(DBContent.id == content_id))
     content = result.scalars().first()
     if not content:
         raise HTTPException(status_code=404, detail="Content not found")
+
+    model_overrides = body.model_overrides if body else None
+    resume = body.resume if body else True
+    idempotency_key = body.idempotency_key if body else None
 
     job = await job_manager.create_job(
         content_id=str(content_id),
@@ -60,7 +68,7 @@ async def trigger_content_pipeline(
         "job_id": job.job_id,
         "content_id": str(content_id),
         "status": "202_accepted",
-        "message": f"Pipeline job '{job.job_id}' queued for processing via Redis worker."
+        "message": f"Pipeline job '{job.job_id}' queued for processing."
     }
 
 
