@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, func, JSON, Float, Integer, ForeignKey
+from sqlalchemy import Column, String, DateTime, func, JSON, Float, Integer, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -68,14 +68,18 @@ class Content(Base):
 
 class PipelineJobDB(Base):
     __tablename__ = "pipeline_jobs"
+    __table_args__ = (
+        Index('ix_job_content_idempotency', 'content_id', 'idempotency_key', unique=True, postgresql_where="idempotency_key IS NOT NULL"),
+    )
     id = Column(String, primary_key=True)
     content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
     idempotency_key = Column(String, nullable=True)
     status = Column(String, default="queued")
     current_stage = Column(String, default="NEW")
     progress_percent = Column(Integer, default=0)
-    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
+    last_heartbeat = Column(DateTime(timezone=True), nullable=True)
     error = Column(String, nullable=True)
     model_overrides = Column(JSON, nullable=True)
     resume = Column(Integer, default=1)

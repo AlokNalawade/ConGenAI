@@ -4,10 +4,11 @@ import shutil
 import ffmpeg
 import imageio_ffmpeg
 from app.services.subtitle_service import SubtitleService
+from app.core.config import settings
 
 class VideoService:
     def __init__(self):
-        self.output_dir = os.path.join("data", "assets", "videos")
+        self.output_dir = os.path.join(settings.ASSETS_DIR, "videos")
         os.makedirs(self.output_dir, exist_ok=True)
         self.ffmpeg_cmd = shutil.which("ffmpeg") or imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -23,7 +24,7 @@ class VideoService:
             vf_filters = ['scale=1080:1920', 'format=yuv420p']
             if text and text.strip():
                 try:
-                    ass_dir = os.path.join("data", "assets", "subtitles")
+                    ass_dir = os.path.join(settings.ASSETS_DIR, "subtitles")
                     os.makedirs(ass_dir, exist_ok=True)
                     ass_path = os.path.join(ass_dir, f"sub_{uuid.uuid4().hex[:8]}.ass")
                     scene_dur = float(duration) if duration and float(duration) > 0 else 5.0

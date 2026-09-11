@@ -4,6 +4,7 @@ import httpx
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 from app.services.providers.base import BaseImageProvider
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ class MockImageProvider(BaseImageProvider):
         output_path: Optional[str] = None
     ) -> str:
         if not output_path:
-            output_path = f"data/assets/images/mock_{os.urandom(4).hex()}.png"
+            output_path = os.path.join(settings.ASSETS_DIR, "images", f"mock_{os.urandom(4).hex()}.png")
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         img = Image.new('RGB', (width, height), color=(20, 24, 38))
@@ -46,7 +47,7 @@ class ComfyUIProvider(BaseImageProvider):
         output_path: Optional[str] = None
     ) -> str:
         if not output_path:
-            output_path = f"data/assets/images/comfy_{os.urandom(4).hex()}.png"
+            output_path = os.path.join(settings.ASSETS_DIR, "images", f"comfy_{os.urandom(4).hex()}.png")
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         

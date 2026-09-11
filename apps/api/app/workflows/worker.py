@@ -1,19 +1,33 @@
-import asyncio
+"""
+Job management layer — thin DB-only wrapper.
+
+Sprint 3: Removed in-memory job cache and asyncio.create_task().
+All job execution goes through the Redis queue (task_queue.py).
+"""
+import os
 import logging
 import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime
+
 from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.db.database import AsyncSessionLocal
 from app.db.models import PipelineJobDB
-from app.workflows.content_pipeline import ContentPipeline
 from app.core.logging import log_manager
 from app.core.compute_config import compute_config
 
 logger = logging.getLogger(__name__)
 
+
 class PipelineJob:
+    """
+    In-memory representation of a pipeline job.
+    Used only for API responses — NOT for execution tracking.
+    """
+
     def __init__(
         self,
         job_id: str,
@@ -21,7 +35,7 @@ class PipelineJob:
         model_overrides: Optional[Dict[str, str]] = None,
         resume: bool = True,
         pipeline_run_id: Optional[str] = None,
-        idempotency_key: Optional[str] = None
+        idempotency_key: Optional[str] = None,
     ):
         self.job_id = job_id
         self.content_id = content_id
@@ -32,7 +46,8 @@ class PipelineJob:
         self.status = "queued"
         self.current_stage = "NEW"
         self.progress_percent = 0
-        self.started_at = datetime.utcnow()
+        self.created_at = datetime.utcnow()
+        self.started_at: Optional[datetime] = None  # Issue #5: set on actual execution
         self.completed_at: Optional[datetime] = None
         self.error: Optional[str] = None
 
@@ -47,187 +62,170 @@ class PipelineJob:
             "model_overrides": self.model_overrides,
             "resume": self.resume,
             "pipeline_run_id": self.pipeline_run_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "error": self.error
+            "error": self.error,
         }
 
+
+def _db_to_job(db_job: PipelineJobDB) -> PipelineJob:
+    """Convert a DB row to a PipelineJob object for API responses."""
+    job = PipelineJob(
+        job_id=db_job.id,
+        content_id=str(db_job.content_id),
+        model_overrides=db_job.model_overrides or {},
+        resume=bool(db_job.resume),
+        pipeline_run_id=str(db_job.pipeline_run_id) if db_job.pipeline_run_id else None,
+        idempotency_key=db_job.idempotency_key,
+    )
+    job.status = db_job.status
+    job.current_stage = db_job.current_stage
+    job.progress_percent = db_job.progress_percent
+    job.started_at = db_job.started_at
+    job.completed_at = db_job.completed_at
+    job.created_at = db_job.created_at
+    job.error = db_job.error
+    return job
+
+
 class JobManager:
-    _instance = None
+    """
+    DB-only job manager. No in-memory cache. No asyncio.create_task().
     
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(JobManager, cls).__new__(cls)
-            cls._instance.memory_jobs: Dict[str, PipelineJob] = {}
-        return cls._instance
+    create_job() persists to PostgreSQL and enqueues to Redis.
+    get_job() / get_job_by_content() always read from PostgreSQL.
+    """
 
     async def create_job(
         self,
         content_id: str,
         model_overrides: Optional[Dict[str, str]] = None,
         resume: bool = True,
-        idempotency_key: Optional[str] = None
+        idempotency_key: Optional[str] = None,
+        enqueue: bool = True,
     ) -> PipelineJob:
-        # 1. Idempotency Check: Return active running/queued job if present
-        if idempotency_key:
-            for j in self.memory_jobs.values():
-                if j.idempotency_key == idempotency_key and j.status in ("queued", "running"):
-                    logger.info(f"Idempotency hit! Returning existing active job {j.job_id} for key '{idempotency_key}'")
-                    return j
-
-            async with AsyncSessionLocal() as db:
-                res = await db.execute(
-                    select(PipelineJobDB).filter(
-                        PipelineJobDB.idempotency_key == idempotency_key,
-                        PipelineJobDB.status.in_(["queued", "running"])
-                    )
-                )
-                existing_db_job = res.scalars().first()
-                if existing_db_job:
-                    logger.info(f"Idempotency hit in DB! Returning existing active job {existing_db_job.id}")
-                    return await self.get_job(existing_db_job.id)
-
+        """
+        Create a new pipeline job in the DB and enqueue it to Redis.
+        
+        Issue #4: Uses INSERT with ON CONFLICT for race-safe idempotency.
+        """
         job_id = f"job_{uuid.uuid4().hex[:8]}"
+        pipeline_run_id = str(uuid.uuid4())
+
         job = PipelineJob(
             job_id=job_id,
             content_id=str(content_id),
             model_overrides=model_overrides,
             resume=resume,
-            idempotency_key=idempotency_key
+            pipeline_run_id=pipeline_run_id,
+            idempotency_key=idempotency_key,
         )
-        self.memory_jobs[job_id] = job
 
-        # 2. Mandatory DB Persistence check
-        try:
-            async with AsyncSessionLocal() as db:
-                db_job = PipelineJobDB(
-                    id=job.job_id,
-                    content_id=uuid.UUID(job.content_id),
-                    idempotency_key=job.idempotency_key,
-                    status=job.status,
-                    current_stage=job.current_stage,
-                    progress_percent=job.progress_percent,
-                    model_overrides=job.model_overrides,
-                    resume=1 if job.resume else 0,
-                    pipeline_run_id=uuid.UUID(job.pipeline_run_id)
-                )
+        async with AsyncSessionLocal() as db:
+            db_job = PipelineJobDB(
+                id=job.job_id,
+                content_id=uuid.UUID(job.content_id),
+                idempotency_key=job.idempotency_key,
+                status=job.status,
+                current_stage=job.current_stage,
+                progress_percent=job.progress_percent,
+                model_overrides=job.model_overrides,
+                resume=1 if job.resume else 0,
+                pipeline_run_id=uuid.UUID(job.pipeline_run_id),
+            )
+            try:
                 db.add(db_job)
                 await db.commit()
-        except Exception as e:
-            if not compute_config.allow_ephemeral_jobs:
-                logger.error(f"Mandatory DB persistence failed for job {job_id}: {e}")
-                raise RuntimeError(
-                    f"Mandatory database job persistence failed for job '{job_id}'. "
-                    f"Set ALLOW_EPHEMERAL_JOBS=true to enable ephemeral in-memory fallback. Original error: {e}"
-                ) from e
-            logger.warning(f"DB job persistence failed, falling back to ephemeral mode (ALLOW_EPHEMERAL_JOBS=true): {e}")
+                logger.info(f"Created pipeline job {job_id} in DB")
+            except IntegrityError:
+                # Issue #4: idempotency constraint hit — return existing job
+                await db.rollback()
+                if idempotency_key:
+                    result = await db.execute(
+                        select(PipelineJobDB).filter(
+                            PipelineJobDB.content_id == uuid.UUID(str(content_id)),
+                            PipelineJobDB.idempotency_key == idempotency_key,
+                        )
+                    )
+                    existing = result.scalars().first()
+                    if existing:
+                        logger.info(
+                            f"Idempotency hit (DB constraint): returning existing job {existing.id}"
+                        )
+                        return _db_to_job(existing)
+                raise
+
+        # Enqueue to Redis queue unless testing or enqueue=False
+        if enqueue and os.getenv("TESTING", "false").lower() not in ("true", "1"):
+            try:
+                from app.workflows.task_queue import enqueue_pipeline_job
+
+                await enqueue_pipeline_job(
+                    job_id=job.job_id,
+                    content_id=job.content_id,
+                    pipeline_run_id=job.pipeline_run_id,
+                    model_overrides=job.model_overrides,
+                    resume=job.resume,
+                )
+            except Exception as e:
+                logger.warning(f"Redis enqueue failed for job {job.job_id}: {e}")
+                # Job is persisted in DB — stale recovery will pick it up
+                if not compute_config.allow_ephemeral_jobs:
+                    raise
 
         return job
 
     async def get_job(self, job_id: str) -> Optional[PipelineJob]:
-        if job_id in self.memory_jobs:
-            return self.memory_jobs[job_id]
-            
+        """
+        Get a job by ID. Always reads from DB (Issue #6: no stale memory cache).
+        """
         async with AsyncSessionLocal() as db:
-            res = await db.execute(select(PipelineJobDB).filter(PipelineJobDB.id == job_id))
-            db_job = res.scalars().first()
+            result = await db.execute(
+                select(PipelineJobDB).filter(PipelineJobDB.id == job_id)
+            )
+            db_job = result.scalars().first()
             if db_job:
-                job = PipelineJob(
-                    job_id=db_job.id,
-                    content_id=str(db_job.content_id),
-                    model_overrides=db_job.model_overrides or {},
-                    resume=bool(db_job.resume),
-                    pipeline_run_id=str(db_job.pipeline_run_id) if db_job.pipeline_run_id else None,
-                    idempotency_key=db_job.idempotency_key
-                )
-                job.status = db_job.status
-                job.current_stage = db_job.current_stage
-                job.progress_percent = db_job.progress_percent
-                job.error = db_job.error
-                self.memory_jobs[job_id] = job
-                return job
+                return _db_to_job(db_job)
         return None
 
     async def get_job_by_content(self, content_id: str) -> Optional[PipelineJob]:
-        for j in self.memory_jobs.values():
-            if j.content_id == str(content_id):
-                return j
-                
+        """
+        Get the most recent job for a content ID.
+        Issue #6: Always queries DB first, returns latest job.
+        """
         async with AsyncSessionLocal() as db:
-            res = await db.execute(
+            result = await db.execute(
                 select(PipelineJobDB)
                 .filter(PipelineJobDB.content_id == uuid.UUID(str(content_id)))
                 .order_by(PipelineJobDB.created_at.desc())
             )
-            db_job = res.scalars().first()
+            db_job = result.scalars().first()
             if db_job:
-                return await self.get_job(db_job.id)
+                return _db_to_job(db_job)
         return None
 
-    async def update_job_db(self, job: PipelineJob):
-        try:
-            async with AsyncSessionLocal() as db:
-                res = await db.execute(select(PipelineJobDB).filter(PipelineJobDB.id == job.job_id))
-                db_job = res.scalars().first()
-                if db_job:
-                    db_job.status = job.status
-                    db_job.current_stage = job.current_stage
-                    db_job.progress_percent = job.progress_percent
-                    db_job.completed_at = job.completed_at
-                    db_job.error = job.error
-                    await db.commit()
-        except Exception as e:
-            logger.warning(f"Could not update status in DB for job {job.job_id}: {e}")
+    async def run_job_inline(self, job_id: str):
+        """
+        Execute a job synchronously (inline) — for tests only.
+        In production, jobs are executed by the arq worker process.
+        """
+        from app.workflows.task_queue import execute_pipeline_job
 
-    async def run_job(self, job_id: str, sync: bool = False):
         job = await self.get_job(job_id)
         if not job:
             logger.error(f"Job {job_id} not found")
             return
 
-        job.status = "running"
-        job.started_at = datetime.utcnow()
-        await self.update_job_db(job)
-        
-        await log_manager.broadcast(
-            f"🚀 [JobWorker] Started pipeline execution for job {job_id} (content: {job.content_id})",
-            agent="JobWorker"
+        await execute_pipeline_job(
+            ctx={},
+            job_id=job.job_id,
+            content_id=job.content_id,
+            pipeline_run_id=job.pipeline_run_id,
+            model_overrides=job.model_overrides,
+            resume=job.resume,
         )
 
-        async def _execute():
-            async with AsyncSessionLocal() as db:
-                pipeline = ContentPipeline()
-                try:
-                    context = await pipeline.run(
-                        content_id=uuid.UUID(job.content_id),
-                        db=db,
-                        model_overrides=job.model_overrides,
-                        resume=job.resume,
-                        pipeline_run_id=uuid.UUID(job.pipeline_run_id) if job.pipeline_run_id else None
-                    )
-                    job.status = "completed"
-                    job.current_stage = context.current_state.value
-                    job.progress_percent = 100
-                    job.completed_at = datetime.utcnow()
-                    await self.update_job_db(job)
-                    await log_manager.broadcast(
-                        f"✅ [JobWorker] Pipeline execution completed for content {job.content_id}",
-                        agent="JobWorker"
-                    )
-                except Exception as e:
-                    job.status = "failed"
-                    job.error = str(e)
-                    job.completed_at = datetime.utcnow()
-                    await self.update_job_db(job)
-                    logger.error(f"Job {job_id} failed: {e}", exc_info=True)
-                    await log_manager.broadcast(
-                        f"❌ [JobWorker] Pipeline execution failed for content {job.content_id}: {e}",
-                        agent="JobWorker"
-                    )
 
-        if sync:
-            await _execute()
-        else:
-            asyncio.create_task(_execute())
-
+# Module-level singleton
 job_manager = JobManager()

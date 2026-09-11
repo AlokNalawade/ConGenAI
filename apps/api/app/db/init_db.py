@@ -29,7 +29,12 @@ async def init_db():
             "ALTER TABLE scenes ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
             "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
             "ALTER TABLE content ADD COLUMN IF NOT EXISTS batch_id VARCHAR;",
-            "ALTER TABLE pipeline_jobs ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR;"
+            "ALTER TABLE pipeline_jobs ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR;",
+            # Sprint 3: heartbeat + idempotency constraint
+            "ALTER TABLE pipeline_jobs ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ;",
+            "ALTER TABLE pipeline_jobs ALTER COLUMN started_at DROP DEFAULT;",
+            "ALTER TABLE pipeline_jobs ALTER COLUMN started_at DROP NOT NULL;",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_job_content_idempotency ON pipeline_jobs(content_id, idempotency_key) WHERE idempotency_key IS NOT NULL;",
         ]
         for stmt in alter_statements:
             try:

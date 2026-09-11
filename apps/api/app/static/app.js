@@ -1,6 +1,19 @@
 const API_BASE = '/api/v1';
 const activeTasks = {}; // contentId -> { title: string, label: string, step: string }
 
+function getAssetUrl(path) {
+    if (!path) return '';
+    let clean = path.replace(/\\/g, '/');
+    if (clean.includes('data/assets/')) {
+        clean = clean.split('data/assets/')[1];
+    } else if (clean.includes('assets/')) {
+        clean = clean.split('assets/')[1];
+    } else if (clean.startsWith('/')) {
+        clean = clean.substring(1);
+    }
+    return '/assets/' + clean;
+}
+
 function switchTab(linkEl, tabName) {
     document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
     if (linkEl) {
@@ -24,8 +37,6 @@ function switchTab(linkEl, tabName) {
         loadIdeasView();
     } else if (tabName === 'videos') {
         loadVideosView();
-    } else if (tabName === 'settings') {
-        // Settings view is ready
     }
 }
 
@@ -61,7 +72,7 @@ function updateBannerStatus() {
     if (activeKeys.length > 0) {
         const firstKey = activeKeys[0];
         const task = activeTasks[firstKey];
-        textEl.innerText = `${task.title ? `"${task.title}"` : 'Video'}: ${task.step || 'Processing...'}`;
+        textEl.innerText = `${task.title ? `"${task.title}"` : 'Video'}: ${task.step || 'Processing via Durable Worker...'}`;
         banner.style.display = 'inline-flex';
     } else {
         banner.style.display = 'none';
@@ -70,6 +81,7 @@ function updateBannerStatus() {
 
 function toggleModal(id) {
     const modal = document.getElementById(id);
+    if (!modal) return;
     if (modal.classList.contains('active')) {
         modal.classList.remove('active');
         setTimeout(() => { modal.style.display = 'none'; }, 300);
@@ -86,13 +98,34 @@ async function fetchPipeline() {
         const contents = await res.json();
         
         document.getElementById('stat-ideas').innerText = contents.length;
-        document.getElementById('stat-production').innerText = contents.filter(c => c.status !== 'completed').length;
-        document.getElementById('stat-completed').innerText = contents.filter(c => c.status === 'completed').length;
+        document.getElementById('stat-production').innerText = contents.filter(c => !['completed', 'approved', 'failed', 'idea'].includes(c.status)).length;
+        document.getElementById('stat-completed').innerText = contents.filter(c => ['completed', 'approved', 'awaiting_approval'].includes(c.status)).length;
         
         renderKanban(contents);
     } catch (e) {
         console.error("Failed to fetch pipeline", e);
     }
+}
+
+function getStageBadge(status) {
+    const map = {
+        'idea': { label: '💡 Idea', color: 'rgba(255,255,255,0.1)', text: '#a0a5b5' },
+        'planning': { label: '💡 Planning', color: 'rgba(255,255,255,0.1)', text: '#a0a5b5' },
+        'researching': { label: '🔬 Researching', color: 'rgba(108, 92, 231, 0.2)', text: '#a29bfe', spin: true, percent: 15 },
+        'strategizing': { label: '🎯 Strategizing', color: 'rgba(108, 92, 231, 0.2)', text: '#a29bfe', spin: true, percent: 30 },
+        'scripting': { label: '📝 Scriptwriting', color: 'rgba(108, 92, 231, 0.2)', text: '#a29bfe', spin: true, percent: 45 },
+        'planning_scenes': { label: '🎬 Scene Planning', color: 'rgba(162, 155, 254, 0.2)', text: '#a29bfe', spin: true, percent: 60 },
+        'generating_assets': { label: '🎨 Generating Media', color: 'rgba(253, 203, 110, 0.2)', text: '#fdcb6e', spin: true, percent: 75 },
+        'media': { label: '🎨 Media Assets', color: 'rgba(253, 203, 110, 0.2)', text: '#fdcb6e', spin: true, percent: 75 },
+        'rendering_video': { label: '⚡ Rendering Video', color: 'rgba(253, 203, 110, 0.25)', text: '#fdcb6e', spin: true, percent: 90 },
+        'assembly': { label: '⚡ Assembling Video', color: 'rgba(253, 203, 110, 0.25)', text: '#fdcb6e', spin: true, percent: 90 },
+        'quality_check': { label: '🔍 Quality Scoring', color: 'rgba(0, 206, 201, 0.2)', text: '#00cec9', spin: true, percent: 95 },
+        'awaiting_approval': { label: '👁️ Ready for Review', color: 'rgba(0, 184, 148, 0.25)', text: '#00b894', percent: 100 },
+        'approved': { label: '✅ Approved', color: 'rgba(0, 184, 148, 0.25)', text: '#00b894', percent: 100 },
+        'completed': { label: '✅ Completed', color: 'rgba(0, 184, 148, 0.25)', text: '#00b894', percent: 100 },
+        'failed': { label: '❌ Failed', color: 'rgba(214, 48, 49, 0.25)', text: '#ff7675', percent: 0 }
+    };
+    return map[status] || { label: status || 'Pending', color: 'rgba(255,255,255,0.1)', text: '#fff' };
 }
 
 function renderKanban(contents) {
@@ -107,46 +140,59 @@ function renderKanban(contents) {
     
     contents.forEach(content => {
         let colId = 'planning';
-        const s = content.status || 'planning';
+        const s = content.status || 'idea';
         
-        if (s === 'researching' || s === 'scripting') colId = 'scripting';
-        if (s === 'scenes' || s === 'media') colId = 'media';
-        if (s === 'assembly' || s === 'completed') colId = 'assembly';
+        if (['researching', 'strategizing', 'scripting', 'planning_scenes'].includes(s)) colId = 'scripting';
+        if (['generating_assets', 'media', 'rendering_video', 'assembly'].includes(s)) colId = 'media';
+        if (['quality_check', 'awaiting_approval', 'approved', 'completed'].includes(s)) colId = 'assembly';
+        if (s === 'failed') colId = 'planning'; // Keep failed in column 1 for easy retry
         
         const card = document.createElement('div');
         card.className = 'task-card';
+        card.style.position = 'relative';
         
         const taskState = activeTasks[content.id];
+        const badge = getStageBadge(s);
+
         let actionBtn = '';
-        
         if (taskState) {
-            actionBtn = `<button class="btn-sm btn-action" disabled style="background: rgba(108, 92, 231, 0.4); border: 1px solid rgba(162, 155, 254, 0.5); font-weight: 600;"><i class="ri-loader-4-line spin" style="color: #00b894;"></i> ${taskState.label || 'Processing'}</button>`;
-        } else if (s === 'planning') {
-            actionBtn = `<button class="btn-sm btn-action" onclick="triggerAction(this, '${content.id}', 'research')"><i class="ri-search-eye-line"></i> Research</button>`;
-        } else if (s === 'researching') {
-            actionBtn = `<button class="btn-sm btn-action" onclick="triggerAction(this, '${content.id}', 'script')"><i class="ri-edit-line"></i> Write Script</button>`;
-        } else if (s === 'scripting') {
-            actionBtn = `<button class="btn-sm btn-action" onclick="triggerAction(this, '${content.id}', 'scenes')"><i class="ri-film-line"></i> Plan Scenes</button>`;
-        } else if (s === 'scenes') {
-            actionBtn = `<button class="btn-sm btn-action" onclick="triggerAction(this, '${content.id}', 'media')"><i class="ri-image-edit-line"></i> Gen Media</button>`;
-        } else if (s === 'media') {
-            actionBtn = `<button class="btn-sm btn-action" onclick="triggerAction(this, '${content.id}', 'assemble')"><i class="ri-movie-line"></i> Assemble Video</button>`;
-        } else if (s === 'completed' || s === 'awaiting_approval' || s === 'approved') {
-            actionBtn = `<button class="btn-sm btn-action" style="background:#00b894;" onclick="openHitlInspector('${content.id}')"><i class="ri-eye-line"></i> Inspect & Review</button>`;
+            actionBtn = `<button class="btn-sm btn-action" disabled style="background: rgba(108, 92, 231, 0.3); border: 1px solid rgba(162, 155, 254, 0.4); font-weight: 600;"><i class="ri-loader-4-line spin" style="color: #00b894;"></i> ${taskState.label || 'Processing'}</button>`;
+        } else if (['idea', 'planning'].includes(s)) {
+            actionBtn = `<button class="btn-sm btn-action" style="background: linear-gradient(135deg, #6c5ce7, #a29bfe);" onclick="runPipelineWorker('${content.id}')"><i class="ri-play-circle-fill"></i> Run Pipeline</button>`;
+        } else if (s === 'failed') {
+            actionBtn = `<button class="btn-sm btn-action" style="background: rgba(214, 48, 49, 0.8);" onclick="resumePipelineWorker('${content.id}')"><i class="ri-refresh-line"></i> Retry / Resume</button>`;
+        } else if (['awaiting_approval', 'approved', 'completed'].includes(s)) {
+            actionBtn = `<button class="btn-sm btn-action" style="background: linear-gradient(135deg, #00b894, #00cec9);" onclick="openHitlInspector('${content.id}')"><i class="ri-eye-line"></i> Inspect & Review</button>`;
+        } else {
+            // Actively processing in worker queue
+            actionBtn = `<button class="btn-sm btn-action" disabled style="background: rgba(108, 92, 231, 0.25); color: #a29bfe;"><i class="ri-loader-4-line spin"></i> Processing...</button>`;
+        }
+
+        let progressBar = '';
+        if (badge.percent !== undefined && badge.percent > 0 && badge.percent < 100) {
+            progressBar = `
+                <div style="width: 100%; background: rgba(255,255,255,0.06); height: 4px; border-radius: 2px; margin-bottom: 12px; overflow: hidden;">
+                    <div style="width: ${badge.percent}%; background: linear-gradient(90deg, #6c5ce7, #00b894); height: 100%; transition: width 0.4s ease;"></div>
+                </div>
+            `;
         }
 
         card.innerHTML = `
-            <div class="card-tags">
-                <span class="tag tag-platform">${content.platform}</span>
+            <div class="card-tags" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span class="tag tag-platform">${content.platform || 'Shorts'}</span>
+                <span class="tag" style="background: ${badge.color}; color: ${badge.text}; display: inline-flex; align-items: center; gap: 4px;">
+                    ${badge.spin ? '<i class="ri-loader-4-line spin"></i>' : ''} ${badge.label}
+                </span>
             </div>
-            <div class="card-title">${content.title}</div>
-            <div class="card-desc">${content.description || 'No description provided.'}</div>
-            <div class="card-actions">
+            ${progressBar}
+            <div class="card-title">${escapeHtml(content.title)}</div>
+            <div class="card-desc">${escapeHtml(content.description || 'No description provided.')}</div>
+            <div class="card-actions" style="margin-top: 12px;">
                 ${actionBtn}
             </div>
         `;
         
-        if(cols[colId]) {
+        if (cols[colId]) {
             cols[colId].appendChild(card);
         }
     });
@@ -157,6 +203,38 @@ function renderKanban(contents) {
     });
 
     updateBannerStatus();
+}
+
+async function runPipelineWorker(contentId) {
+    activeTasks[contentId] = { label: 'Queued', step: 'Enqueued to Redis worker queue...' };
+    updateBannerStatus();
+    try {
+        const res = await fetch(`${API_BASE}/content/${contentId}/pipeline`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content_id: contentId, resume: true })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await fetchPipeline();
+    } catch (e) {
+        console.error("Failed to enqueue pipeline job:", e);
+        delete activeTasks[contentId];
+        updateBannerStatus();
+    }
+}
+
+async function resumePipelineWorker(contentId) {
+    activeTasks[contentId] = { label: 'Resuming', step: 'Resuming pipeline execution...' };
+    updateBannerStatus();
+    try {
+        const res = await fetch(`${API_BASE}/content/${contentId}/resume`, { method: 'POST' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await fetchPipeline();
+    } catch (e) {
+        console.error("Failed to resume pipeline job:", e);
+        delete activeTasks[contentId];
+        updateBannerStatus();
+    }
 }
 
 async function loadIdeasView() {
@@ -191,10 +269,10 @@ async function loadIdeasView() {
                     <span class="tag tag-platform">${idea.platform || 'Shorts'}</span>
                     <span style="font-size: 11px; color: var(--text-muted);">${idea.content_type || 'General'}</span>
                 </div>
-                <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">${idea.title}</h3>
-                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5;">${idea.description || 'No description provided.'}</p>
+                <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">${escapeHtml(idea.title)}</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5;">${escapeHtml(idea.description || 'No description provided.')}</p>
                 <div style="display: flex; gap: 10px;">
-                    <button class="btn-sm btn-action" style="flex: 1;" onclick="launchIdeaE2E('${idea.id}', '${escapeHtml(idea.title)}', '${escapeHtml(idea.description)}', '${idea.platform}')">
+                    <button class="btn-sm btn-action" style="flex: 1; background: linear-gradient(135deg, #00b894, #00cec9);" onclick="launchIdeaE2E('${idea.id}', '${escapeHtml(idea.title)}', '${escapeHtml(idea.description)}', '${idea.platform}')">
                         <i class="ri-rocket-line"></i> Launch Video E2E
                     </button>
                 </div>
@@ -217,16 +295,7 @@ async function launchIdeaE2E(ideaId, title, description, platform) {
         const content = await contentRes.json();
         
         switchTab(document.getElementById('nav-dashboard'), 'dashboard');
-        
-        activeTasks[content.id] = { title: content.title, label: 'Researching', step: 'Researching topic & audience...' };
-        updateBannerStatus();
-        await fetchPipeline();
-
-        await triggerAction(content.id, 'research', 'Researching');
-        await triggerAction(content.id, 'script', 'Writing Script');
-        await triggerAction(content.id, 'scenes', 'Planning Scenes');
-        await triggerAction(content.id, 'media', 'Generating Media');
-        await triggerAction(content.id, 'assemble', 'Assembling Video');
+        await runPipelineWorker(content.id);
     } catch (e) {
         console.error("Launch E2E from Idea error:", e);
     }
@@ -242,7 +311,7 @@ async function loadVideosView() {
         const contents = await res.json();
         grid.innerHTML = '';
 
-        const completed = contents.filter(c => c.status === 'completed');
+        const completed = contents.filter(c => ['completed', 'approved', 'awaiting_approval'].includes(c.status));
 
         if (completed.length === 0) {
             grid.innerHTML = `
@@ -263,8 +332,7 @@ async function loadVideosView() {
 
             if (!videoAsset) continue;
 
-            let videoUrl = videoAsset.path.replace(/\\/g, '/').replace(/.*data\/assets\//, '/assets/');
-            if (!videoUrl.startsWith('/')) videoUrl = '/' + videoUrl;
+            const videoUrl = getAssetUrl(videoAsset.path);
 
             const card = document.createElement('div');
             card.className = 'glass';
@@ -273,7 +341,7 @@ async function loadVideosView() {
             card.innerHTML = `
                 <div style="position: relative; border-radius: 12px; overflow: hidden; margin-bottom: 16px; background: #000; height: 240px; display: flex; align-items: center; justify-content: center;">
                     <video src="${videoUrl}#t=0.5" style="width: 100%; height: 100%; object-fit: cover;" preload="metadata"></video>
-                    <button onclick="playVideo('${content.id}')" style="position: absolute; width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(135deg, #00b894, #00cec9); color: white; border: none; font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(0, 184, 148, 0.6);">
+                    <button onclick="playVideoDirect('${videoUrl}', '${escapeHtml(content.title)}')" style="position: absolute; width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(135deg, #00b894, #00cec9); color: white; border: none; font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(0, 184, 148, 0.6);">
                         <i class="ri-play-fill" style="margin-left: 3px;"></i>
                     </button>
                 </div>
@@ -281,9 +349,9 @@ async function loadVideosView() {
                     <span class="tag tag-platform">${content.platform || 'Shorts'}</span>
                     <span style="font-size: 11px; color: #00b894; font-weight: 600;">Ready</span>
                 </div>
-                <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 14px;">${content.title}</h3>
+                <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 14px;">${escapeHtml(content.title)}</h3>
                 <div style="display: flex; gap: 10px;">
-                    <button class="btn-sm btn-action" style="flex: 1;" onclick="playVideo('${content.id}')">
+                    <button class="btn-sm btn-action" style="flex: 1;" onclick="playVideoDirect('${videoUrl}', '${escapeHtml(content.title)}')">
                         <i class="ri-play-fill"></i> Play Video
                     </button>
                     <a href="${videoUrl}" download="${content.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp4" class="btn-sm" style="background: rgba(255,255,255,0.08); color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
@@ -303,7 +371,6 @@ async function resetAllData() {
     try {
         const res = await fetch(`${API_BASE}/ideas/reset/`, { method: 'DELETE' });
         if (!res.ok) {
-            // Fallback reset loop
             const contents = await (await fetch(`${API_BASE}/content/`)).json();
             for (let c of contents) {
                 await fetch(`${API_BASE}/content/${c.id}`, { method: 'DELETE' });
@@ -346,87 +413,11 @@ document.getElementById('ideaForm').addEventListener('submit', async (e) => {
     }
 });
 
-async function triggerAction(btnEl, contentId, action, customLabel = null, modelOverride = null) {
-    if (typeof btnEl === 'string') {
-        modelOverride = customLabel;
-        customLabel = action;
-        action = contentId;
-        contentId = btnEl;
-        btnEl = null;
-    }
-
-    const actionLabels = {
-        'research': 'Researching',
-        'script': 'Writing Script',
-        'scenes': 'Planning Scenes',
-        'media': 'Generating Media',
-        'assemble': 'Assembling Video'
-    };
-
-    const label = customLabel || actionLabels[action] || 'Processing';
-    activeTasks[contentId] = { label: label, step: `${label}...` };
-    updateBannerStatus();
-    fetchPipeline();
-
-    try {
-        let res;
-        if (action === 'research') {
-            const m = modelOverride || document.getElementById('modelResearch')?.value;
-            const q = m ? `?model=${encodeURIComponent(m)}` : '';
-            res = await fetch(`${API_BASE}/content/${contentId}/research/${q}`, { method: 'POST' });
-        } else if (action === 'script') {
-            const m = modelOverride || document.getElementById('modelScript')?.value;
-            const q = m ? `?model=${encodeURIComponent(m)}` : '';
-            res = await fetch(`${API_BASE}/content/${contentId}/scripts/generate${q}`, { method: 'POST' });
-        } else if (action === 'scenes') {
-            const m = modelOverride || document.getElementById('modelScene')?.value;
-            const q = m ? `?model=${encodeURIComponent(m)}` : '';
-            res = await fetch(`${API_BASE}/content/${contentId}/scenes/generate${q}`, { method: 'POST' });
-        } else if (action === 'media') {
-            res = await fetch(`${API_BASE}/content/${contentId}/scenes/`);
-            if (res.ok) {
-                const scenes = await res.json();
-                for (let s of scenes) {
-                    try { await fetch(`${API_BASE}/scenes/${s.id}/image`, {method:'POST'}); } catch(e){}
-                    try { await fetch(`${API_BASE}/scenes/${s.id}/voice`, {method:'POST'}); } catch(e){}
-                }
-                await fetch(`${API_BASE}/content/${contentId}`, {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({status: 'media'})
-                });
-            }
-        } else if (action === 'assemble') {
-            res = await fetch(`${API_BASE}/content/${contentId}/video/generate`, { method: 'POST' });
-            if (res.ok) {
-                delete activeTasks[contentId];
-                updateBannerStatus();
-                await fetchPipeline();
-                playVideo(contentId);
-                return;
-            }
-        }
-        
-        if (res && !res.ok) {
-            const errBody = await res.json().catch(() => ({}));
-            throw new Error(`Server returned ${res.status}: ${JSON.stringify(errBody)}`);
-        }
-    } finally {
-        delete activeTasks[contentId];
-        updateBannerStatus();
-        await fetchPipeline();
-    }
-}
-
 async function submitEndToEnd() {
     const title = document.getElementById('ideaTitle').value;
     const desc = document.getElementById('ideaDesc').value;
     const platform = document.getElementById('ideaPlatform').value;
     const type = document.getElementById('ideaType').value;
-
-    const mResearch = document.getElementById('modelResearch')?.value;
-    const mScript = document.getElementById('modelScript')?.value;
-    const mScene = document.getElementById('modelScene')?.value;
     
     if (!title) {
         document.getElementById('ideaTitle').focus();
@@ -438,12 +429,11 @@ async function submitEndToEnd() {
     const btn = document.getElementById('e2eCreateBtn');
     const origText = btn ? btn.innerHTML : '';
     if (btn) {
-        btn.innerHTML = `<i class="ri-loader-4-line spin"></i> Launching E2E...`;
+        btn.innerHTML = `<i class="ri-loader-4-line spin"></i> Enqueueing...`;
         btn.disabled = true;
     }
 
     try {
-        // 1. Create Idea & Content
         const ideaRes = await fetch(`${API_BASE}/ideas/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -460,35 +450,11 @@ async function submitEndToEnd() {
         if (!contentRes.ok) throw new Error("Failed to create content");
         const content = await contentRes.json();
         
-        // 2. Close modal & update pipeline
         toggleModal('ideaModal');
         document.getElementById('ideaForm').reset();
         
-        // 3. Register active task state so circular spinner shows immediately on card and banner!
-        activeTasks[content.id] = { title: content.title, label: 'Researching', step: 'Researching topic & audience...' };
-        updateBannerStatus();
-        await fetchPipeline();
-
-        // 4. Run pipeline steps passing selected LLMs per task!
-        activeTasks[content.id] = { title: content.title, label: 'Researching', step: `Researching (${mResearch || 'LLM'})...` };
-        updateBannerStatus();
-        await triggerAction(content.id, 'research', 'Researching', mResearch);
-
-        activeTasks[content.id] = { title: content.title, label: 'Writing Script', step: `Writing script (${mScript || 'LLM'})...` };
-        updateBannerStatus();
-        await triggerAction(content.id, 'script', 'Writing Script', mScript);
-
-        activeTasks[content.id] = { title: content.title, label: 'Planning Scenes', step: `Planning scenes (${mScene || 'LLM'})...` };
-        updateBannerStatus();
-        await triggerAction(content.id, 'scenes', 'Planning Scenes', mScene);
-
-        activeTasks[content.id] = { title: content.title, label: 'Gen Media', step: 'Generating AI images & voice audio...' };
-        updateBannerStatus();
-        await triggerAction(content.id, 'media', 'Generating Media');
-
-        activeTasks[content.id] = { title: content.title, label: 'Assembling Video', step: 'Assembling video clips & sound...' };
-        updateBannerStatus();
-        await triggerAction(content.id, 'assemble', 'Assembling Video');
+        switchTab(document.getElementById('nav-dashboard'), 'dashboard');
+        await runPipelineWorker(content.id);
         
     } catch (e) {
         console.error("End-to-end process error:", e);
@@ -536,7 +502,7 @@ ws.onmessage = function(event) {
         const line = document.createElement('div');
         line.className = 'log-line';
         if (data.agent === 'System') line.classList.add('system');
-        if (data.agent === 'LLMService' || data.agent === 'Llama3.1') line.classList.add('llm');
+        if (data.agent === 'Worker' || data.agent === 'JobWorker') line.classList.add('llm');
         
         line.innerHTML = `<span class="time">[${data.time || new Date().toLocaleTimeString()}]</span> <span class="agent">[${data.agent || 'System'}]</span> <span class="text">${escapeHtml(data.message)}</span>`;
         
@@ -553,10 +519,30 @@ ws.onmessage = function(event) {
                 unreadBadge.style.display = 'inline-block';
             }
         }
+        
+        // Auto-refresh pipeline view when worker logs progress
+        if (data.agent === 'Worker' || data.agent === 'ContentPipeline') {
+            fetchPipeline();
+        }
     } catch (e) {
         console.error("Failed to parse log message:", event.data);
     }
 };
+
+function playVideoDirect(url, title = "Video Preview") {
+    const player = document.getElementById('videoPlayer');
+    const bigPlayBtn = document.getElementById('bigPlayBtn');
+    if (!player) return;
+
+    player.pause();
+    player.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+    player.muted = false;
+    player.volume = 1.0;
+    player.load();
+
+    if (bigPlayBtn) bigPlayBtn.style.display = 'flex';
+    toggleModal('videoModal');
+}
 
 async function playVideo(contentId) {
     try {
@@ -569,25 +555,8 @@ async function playVideo(contentId) {
             return;
         }
         
-        let url = videoAsset.path.replace(/\\/g, '/').replace(/.*data\/assets\//, '/assets/');
-        if (!url.startsWith('/')) url = '/' + url;
-        
-        url += (url.includes('?') ? '&' : '?') + 't=' + Date.now();
-        
-        const player = document.getElementById('videoPlayer');
-        const bigPlayBtn = document.getElementById('bigPlayBtn');
-
-        player.pause();
-        player.src = url;
-        player.muted = false;
-        player.volume = 1.0;
-        player.load();
-        
-        if (bigPlayBtn) {
-            bigPlayBtn.style.display = 'flex';
-        }
-
-        toggleModal('videoModal');
+        const url = getAssetUrl(videoAsset.path);
+        playVideoDirect(url);
     } catch (e) {
         console.error("Error playing video:", e);
     }
@@ -640,7 +609,6 @@ function setupDraggableTerminal() {
     const dragHandle = document.getElementById('terminal-drag-handle');
     if (!container || !dragHandle) return;
 
-    // Attach click listeners directly
     const minBtn = document.getElementById('terminal-min-btn');
     const maxBtn = document.getElementById('terminal-max-btn');
     const badge = document.getElementById('terminal-badge');
@@ -758,14 +726,6 @@ function maximizeTerminalWindow() {
     }
 }
 
-function toggleTerminalCollapse() {
-    if (isTerminalMinimized) {
-        restoreTerminalWindow();
-    } else {
-        minimizeTerminalWindow();
-    }
-}
-
 function clearTerminalLogs() {
     const body = document.getElementById('terminal-logs');
     if (body) {
@@ -798,11 +758,10 @@ async function openHitlInspector(contentId) {
         if (res.ok) {
             const data = await res.json();
             if (titleEl) titleEl.innerText = data.title || "Content Inspector";
-            if (scoreEl) scoreEl.innerText = data.quality_score !== null ? data.quality_score : "--";
+            if (scoreEl) scoreEl.innerText = data.quality_score !== null && data.quality_score !== undefined ? data.quality_score : "--";
 
             if (data.video_asset_path && player) {
-                let url = data.video_asset_path.replace(/\\/g, '/').replace(/.*data\/assets\//, '/assets/');
-                if (!url.startsWith('/')) url = '/' + url;
+                const url = getAssetUrl(data.video_asset_path);
                 player.src = url + '?t=' + Date.now();
                 player.load();
             }
@@ -866,12 +825,8 @@ async function hitlApprove() {
 async function hitlResume() {
     if (!currentHitlContentId) return;
     try {
-        const res = await fetch(`${API_BASE}/content/${currentHitlContentId}/resume`, { method: 'POST' });
-        if (res.ok) {
-            alert("Resuming content production pipeline...");
-            toggleModal('hitlModal');
-            fetchPipeline();
-        }
+        await resumePipelineWorker(currentHitlContentId);
+        toggleModal('hitlModal');
     } catch (e) {
         console.error("Failed to resume content:", e);
     }
@@ -882,7 +837,7 @@ async function hitlRegenerate() {
     try {
         const res = await fetch(`${API_BASE}/content/${currentHitlContentId}/regenerate`, { method: 'POST' });
         if (res.ok) {
-            alert("Regeneration triggered!");
+            alert("Regeneration triggered via worker queue!");
             toggleModal('hitlModal');
             fetchPipeline();
         }

@@ -49,15 +49,15 @@ class ContentPipeline:
     async def hydrate_context(self, ctx: WorkflowContext, db: AsyncSession):
         """
         Hydrates WorkflowContext from existing database artifacts when resuming.
+        Issue #3: Queries are scoped by pipeline_run_id first, with fallback to content_id-only.
         """
+        run_id = ctx.pipeline_run_id
+
         # 1. Research
         if not ctx.research:
-            r_res = await db.execute(
-                select(DBResearch)
-                .filter(DBResearch.content_id == ctx.content_id, DBResearch.status == "completed")
-                .order_by(DBResearch.created_at.desc())
+            db_research = await self._find_artifact(
+                db, DBResearch, ctx.content_id, run_id, "completed"
             )
-            db_research = r_res.scalars().first()
             if db_research:
                 ctx.research = ResearchResult(
                     summary=db_research.summary or "",
@@ -71,12 +71,9 @@ class ContentPipeline:
 
         # 2. Strategy
         if not ctx.strategy:
-            st_res = await db.execute(
-                select(DBStrategy)
-                .filter(DBStrategy.content_id == ctx.content_id, DBStrategy.status == "completed")
-                .order_by(DBStrategy.created_at.desc())
+            db_strategy = await self._find_artifact(
+                db, DBStrategy, ctx.content_id, run_id, "completed"
             )
-            db_strategy = st_res.scalars().first()
             if db_strategy:
                 ctx.strategy = StrategyResult(
                     content_angle=db_strategy.content_angle or "Educational",
@@ -87,12 +84,9 @@ class ContentPipeline:
 
         # 3. Script
         if not ctx.script:
-            s_res = await db.execute(
-                select(DBScript)
-                .filter(DBScript.content_id == ctx.content_id, DBScript.status == "completed")
-                .order_by(DBScript.created_at.desc())
+            db_script = await self._find_artifact(
+                db, DBScript, ctx.content_id, run_id, "completed"
             )
-            db_script = s_res.scalars().first()
             if db_script:
                 ctx.script = ScriptResult(
                     hook=db_script.hook or "",
@@ -104,13 +98,11 @@ class ContentPipeline:
 
         # 4. Scenes
         if not ctx.scene_plan:
-            sc_res = await db.execute(
-                select(DBScene)
-                .filter(DBScene.content_id == ctx.content_id, DBScene.status == "completed")
-                .order_by(DBScene.scene_number)
+            sc_res = await self._find_artifacts_list(
+                db, DBScene, ctx.content_id, run_id, "completed",
+                order_by=DBScene.scene_number
             )
-            db_scenes = sc_res.scalars().all()
-            if db_scenes:
+            if sc_res:
                 ctx.scene_plan = ScenePlan(scenes=[
                     Scene(
                         scene_number=sc.scene_number,
@@ -121,22 +113,42 @@ class ContentPipeline:
                         onscreen_text=sc.onscreen_text,
                         transition=sc.transition or "none",
                         sound_effect=sc.sound_effect
-                    ) for sc in db_scenes
+                    ) for sc in sc_res
                 ])
 
-        # 5. Scene Assets
-        sc_res = await db.execute(
-            select(DBScene)
-            .filter(DBScene.content_id == ctx.content_id, DBScene.status == "completed")
-            .order_by(DBScene.scene_number)
+        # 5. Scene Assets (lineage-aware)
+        db_scenes = await self._find_artifacts_list(
+            db, DBScene, ctx.content_id, run_id, "completed",
+            order_by=DBScene.scene_number
         )
-        db_scenes = sc_res.scalars().all()
-        
-        a_res = await db.execute(
-            select(DBAsset)
-            .filter(DBAsset.content_id == ctx.content_id, DBAsset.status == "completed")
-        )
-        db_assets = a_res.scalars().all()
+
+        # Query assets scoped to this pipeline run first, fallback to content_id
+        if run_id:
+            a_res = await db.execute(
+                select(DBAsset).filter(
+                    DBAsset.content_id == ctx.content_id,
+                    DBAsset.pipeline_run_id == run_id,
+                    DBAsset.status == "completed"
+                )
+            )
+            db_assets = a_res.scalars().all()
+            if not db_assets:
+                # Fallback: content_id only (for legacy or first-run data)
+                a_res = await db.execute(
+                    select(DBAsset).filter(
+                        DBAsset.content_id == ctx.content_id,
+                        DBAsset.status == "completed"
+                    )
+                )
+                db_assets = a_res.scalars().all()
+        else:
+            a_res = await db.execute(
+                select(DBAsset).filter(
+                    DBAsset.content_id == ctx.content_id,
+                    DBAsset.status == "completed"
+                )
+            )
+            db_assets = a_res.scalars().all()
 
         for sc in db_scenes:
             sc_num = sc.scene_number
@@ -150,6 +162,58 @@ class ContentPipeline:
                     "image_path": img_a.path if img_a else None,
                     "audio_path": aud_a.path if aud_a else None
                 }
+
+    async def _find_artifact(self, db, model_cls, content_id, run_id, status):
+        """
+        Find a single artifact, scoped by pipeline_run_id first, fallback to content_id only.
+        """
+        if run_id:
+            result = await db.execute(
+                select(model_cls).filter(
+                    model_cls.content_id == content_id,
+                    model_cls.pipeline_run_id == run_id,
+                    model_cls.status == status,
+                ).order_by(model_cls.created_at.desc())
+            )
+            row = result.scalars().first()
+            if row:
+                return row
+
+        # Fallback: content_id only
+        result = await db.execute(
+            select(model_cls).filter(
+                model_cls.content_id == content_id,
+                model_cls.status == status,
+            ).order_by(model_cls.created_at.desc())
+        )
+        return result.scalars().first()
+
+    async def _find_artifacts_list(self, db, model_cls, content_id, run_id, status, order_by=None):
+        """
+        Find multiple artifacts, scoped by pipeline_run_id first, fallback to content_id only.
+        """
+        order = order_by if order_by is not None else model_cls.created_at.desc()
+
+        if run_id:
+            result = await db.execute(
+                select(model_cls).filter(
+                    model_cls.content_id == content_id,
+                    model_cls.pipeline_run_id == run_id,
+                    model_cls.status == status,
+                ).order_by(order)
+            )
+            rows = result.scalars().all()
+            if rows:
+                return rows
+
+        # Fallback
+        result = await db.execute(
+            select(model_cls).filter(
+                model_cls.content_id == content_id,
+                model_cls.status == status,
+            ).order_by(order)
+        )
+        return result.scalars().all()
 
     async def run(
         self,
@@ -175,16 +239,45 @@ class ContentPipeline:
         ctx.platform = content.platform or "Shorts"
         ctx.idea_id = content.idea_id
 
-        # Record PipelineRun in DB
-        pipeline_run = DBPipelineRun(
-            id=run_id,
-            content_id=content_id,
-            status="running",
-            current_stage="INIT",
-            model_overrides=model_overrides or {}
-        )
-        db.add(pipeline_run)
-        await db.commit()
+        # Issue #2: Distinguish start_new_run vs resume_run
+        if resume and pipeline_run_id:
+            # RESUME path: try to load existing PipelineRun
+            existing_run = await db.execute(
+                select(DBPipelineRun).filter(DBPipelineRun.id == run_id)
+            )
+            pipeline_run = existing_run.scalars().first()
+            if pipeline_run:
+                # Reuse existing run — set status back to running
+                pipeline_run.status = "running"
+                pipeline_run.current_stage = "RESUMING"
+                pipeline_run.error = None
+                await db.commit()
+                await log_manager.broadcast(
+                    f"🔄 Resuming PipelineRun {run_id} for '{ctx.title}'",
+                    agent="ContentPipeline"
+                )
+            else:
+                # pipeline_run_id provided but not found — create new
+                pipeline_run = DBPipelineRun(
+                    id=run_id,
+                    content_id=content_id,
+                    status="running",
+                    current_stage="INIT",
+                    model_overrides=model_overrides or {}
+                )
+                db.add(pipeline_run)
+                await db.commit()
+        else:
+            # NEW path: create fresh PipelineRun
+            pipeline_run = DBPipelineRun(
+                id=run_id,
+                content_id=content_id,
+                status="running",
+                current_stage="INIT",
+                model_overrides=model_overrides or {}
+            )
+            db.add(pipeline_run)
+            await db.commit()
 
         await log_manager.broadcast(
             f"🚀 Content Pipeline initiated for '{ctx.title}' ({content_id}) [Run ID: {run_id}] [Resume: {resume}]",
@@ -475,12 +568,19 @@ class ContentPipeline:
             )
             for sc in db_scenes
         ]
-        media_results = await asyncio.gather(*tasks)
+        media_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for scene_num, scene_db_id, prompt, img_path, audio_path, actual_duration, had_img, had_aud in media_results:
+        first_error = None
+        for res in media_results:
+            if isinstance(res, Exception):
+                if not first_error:
+                    first_error = res
+                continue
+
+            scene_num, scene_db_id, prompt, img_path, audio_path, actual_duration, had_img, had_aud = res
             ctx.scene_assets[scene_num] = {}
 
-            if not had_img:
+            if not had_img and img_path:
                 img_asset = DBAsset(
                     content_id=ctx.content_id,
                     scene_id=scene_db_id,
@@ -496,7 +596,7 @@ class ContentPipeline:
                 )
                 db.add(img_asset)
 
-            if not had_aud:
+            if not had_aud and audio_path:
                 audio_asset = DBAsset(
                     content_id=ctx.content_id,
                     scene_id=scene_db_id,
@@ -523,6 +623,9 @@ class ContentPipeline:
             }
 
         await db.commit()
+
+        if first_error:
+            raise first_error
 
     async def _run_render_step(self, ctx: WorkflowContext, db: AsyncSession):
         await update_workflow_state(db, ctx.content_id, WorkflowState.RENDER)

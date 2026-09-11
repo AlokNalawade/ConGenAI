@@ -61,15 +61,10 @@ async def websocket_logs(websocket: WebSocket):
 import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-DATA_ASSETS_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "data", "assets"))
+DATA_ASSETS_DIR = settings.ASSETS_DIR
 os.makedirs(DATA_ASSETS_DIR, exist_ok=True)
-os.makedirs("data/assets", exist_ok=True)
 
-if os.path.exists(DATA_ASSETS_DIR):
-    app.mount("/assets", StaticFiles(directory=DATA_ASSETS_DIR), name="assets")
-else:
-    app.mount("/assets", StaticFiles(directory="data/assets"), name="assets")
-
+app.mount("/assets", StaticFiles(directory=DATA_ASSETS_DIR), name="assets")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")

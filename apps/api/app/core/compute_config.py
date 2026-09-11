@@ -13,6 +13,9 @@ class ComputeConfig(BaseModel):
     allow_ephemeral_jobs: bool = False
     image_concurrency: int = 2
     tts_concurrency: int = 2
+    max_concurrent_jobs: int = 1
+    worker_heartbeat_seconds: int = 30
+    stale_job_timeout_seconds: int = 300
     llm: ProviderConfig = ProviderConfig(provider="ollama", model="llama3:latest", device="cpu")
     image: ProviderConfig = ProviderConfig(provider="mock", model="placeholder", device="cpu")
     tts: ProviderConfig = ProviderConfig(provider="mock", model="silent", device="cpu")
@@ -32,6 +35,9 @@ def load_compute_config() -> ComputeConfig:
             allow_ephemeral_jobs=allow_ephemeral,
             image_concurrency=img_conc,
             tts_concurrency=tts_conc,
+            max_concurrent_jobs=int(os.getenv("MAX_CONCURRENT_JOBS", "3")),
+            worker_heartbeat_seconds=int(os.getenv("WORKER_HEARTBEAT_SECONDS", "30")),
+            stale_job_timeout_seconds=int(os.getenv("STALE_JOB_TIMEOUT_SECONDS", "300")),
             llm=ProviderConfig(provider=os.getenv("GPU_LLM_PROVIDER", "ollama"), model=os.getenv("GPU_LLM_MODEL", "qwen2.5:14b"), device="cuda"),
             image=ProviderConfig(provider=os.getenv("GPU_IMAGE_PROVIDER", "comfyui"), model=os.getenv("GPU_IMAGE_MODEL", "flux"), device="cuda"),
             tts=ProviderConfig(provider=os.getenv("GPU_TTS_PROVIDER", "kokoro"), model=os.getenv("GPU_TTS_MODEL", "kokoro-v1.0"), device="cuda"),
