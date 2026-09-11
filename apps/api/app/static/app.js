@@ -303,70 +303,176 @@ async function launchIdeaE2E(ideaId, title, description, platform) {
     }
 }
 
+// ── Videos gallery state ──────────────────────────────────────────────────
+let _allVideos = [];          // raw data from API, never mutated
+let _videosStatusFilter = 'all';
+
 async function loadVideosView() {
     const grid = document.getElementById('videos-grid');
     if (!grid) return;
-    grid.innerHTML = `<div style="grid-column: 1/-1; color: var(--text-muted); padding: 20px;"><i class="ri-loader-4-line spin"></i> Loading videos gallery...</div>`;
+    grid.innerHTML = `<div style="grid-column:1/-1;color:var(--text-muted);padding:20px;">
+        <i class="ri-loader-4-line spin"></i> Loading videos gallery...</div>`;
 
     try {
-        const res = await fetch(`${API_BASE}/content/`);
-        const contents = await res.json();
-        grid.innerHTML = '';
-
-        const completed = contents.filter(c => ['completed', 'approved', 'awaiting_approval'].includes(c.status));
-
-        if (completed.length === 0) {
-            grid.innerHTML = `
-                <div class="glass" style="grid-column: 1/-1; padding: 40px; text-align: center;">
-                    <i class="ri-video-line" style="font-size: 48px; color: #a29bfe; margin-bottom: 12px; display: block;"></i>
-                    <h3 style="margin-bottom: 8px;">No Generated Videos Yet</h3>
-                    <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">Use the Auto-Create button on any idea to generate vertical short videos.</p>
-                    <button class="btn btn-primary" onclick="switchTab(document.getElementById('nav-dashboard'), 'dashboard')"><i class="ri-rocket-fill"></i> Go to Dashboard</button>
-                </div>
-            `;
-            return;
-        }
-
-        for (let content of completed) {
-            const assetsRes = await fetch(`${API_BASE}/content/${content.id}/assets`);
-            const assets = await assetsRes.json();
-            const videoAsset = assets.find(a => a.asset_type === 'video');
-
-            if (!videoAsset) continue;
-
-            const videoUrl = getAssetUrl(videoAsset.path);
-
-            const card = document.createElement('div');
-            card.className = 'glass';
-            card.style.padding = '20px';
-            card.style.borderRadius = '18px';
-            card.innerHTML = `
-                <div style="position: relative; border-radius: 12px; overflow: hidden; margin-bottom: 16px; background: #000; height: 240px; display: flex; align-items: center; justify-content: center;">
-                    <video src="${videoUrl}#t=0.5" style="width: 100%; height: 100%; object-fit: cover;" preload="metadata"></video>
-                    <button onclick="playVideoDirect('${videoUrl}', '${escapeHtml(content.title)}')" style="position: absolute; width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(135deg, #00b894, #00cec9); color: white; border: none; font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(0, 184, 148, 0.6);">
-                        <i class="ri-play-fill" style="margin-left: 3px;"></i>
-                    </button>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <span class="tag tag-platform">${content.platform || 'Shorts'}</span>
-                    <span style="font-size: 11px; color: #00b894; font-weight: 600;">Ready</span>
-                </div>
-                <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 14px;">${escapeHtml(content.title)}</h3>
-                <div style="display: flex; gap: 10px;">
-                    <button class="btn-sm btn-action" style="flex: 1;" onclick="playVideoDirect('${videoUrl}', '${escapeHtml(content.title)}')">
-                        <i class="ri-play-fill"></i> Play Video
-                    </button>
-                    <a href="${videoUrl}" download="${content.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp4" class="btn-sm" style="background: rgba(255,255,255,0.08); color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
-                        <i class="ri-download-line"></i> MP4
-                    </a>
-                </div>
-            `;
-            grid.appendChild(card);
-        }
+        const res = await fetch(`${API_BASE}/content/videos`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        _allVideos = await res.json();
+        _updateTabCounts();
+        filterVideos();
     } catch (e) {
-        grid.innerHTML = `<div style="color: #ff7675; padding: 20px;">Failed to load videos gallery: ${e}</div>`;
+        grid.innerHTML = `<div style="color:#ff7675;padding:20px;">Failed to load videos: ${e.message}</div>`;
     }
 }
+
+function _updateTabCounts() {
+    const counts = { all: _allVideos.length };
+    for (const v of _allVideos) {
+        counts[v.status] = (counts[v.status] || 0) + 1;
+    }
+    for (const [key, n] of Object.entries(counts)) {
+        const el = document.getElementById(`vcount-${key}`);
+        if (el) el.textContent = n ? ` (${n})` : '';
+    }
+}
+
+function setVideosTab(btn, status) {
+    _videosStatusFilter = status;
+    document.querySelectorAll('.videos-tab-btn').forEach(b => {
+        const active = b === btn;
+        b.style.background = active ? 'rgba(162,155,254,0.15)' : 'rgba(255,255,255,0.04)';
+        b.style.border = active ? '1px solid rgba(162,155,254,0.5)' : '1px solid rgba(255,255,255,0.1)';
+        b.style.color = active ? '#a29bfe' : 'var(--text-muted)';
+        b.style.fontWeight = active ? '600' : '400';
+    });
+    filterVideos();
+}
+
+function filterVideos() {
+    const search = (document.getElementById('videosSearch')?.value || '').toLowerCase().trim();
+    const sort   = document.getElementById('videosSort')?.value || 'newest';
+
+    let list = _allVideos.filter(v => {
+        if (_videosStatusFilter !== 'all' && v.status !== _videosStatusFilter) return false;
+        if (search && !(
+            (v.title || '').toLowerCase().includes(search) ||
+            (v.hook  || '').toLowerCase().includes(search)
+        )) return false;
+        return true;
+    });
+
+    list = [...list].sort((a, b) => {
+        if (sort === 'oldest')     return new Date(a.created_at) - new Date(b.created_at);
+        if (sort === 'score_desc') return (b.quality_score || 0) - (a.quality_score || 0);
+        if (sort === 'score_asc')  return (a.quality_score || 0) - (b.quality_score || 0);
+        return new Date(b.created_at) - new Date(a.created_at); // newest
+    });
+
+    _renderVideosGrid(list);
+}
+
+function _renderVideosGrid(list) {
+    const grid = document.getElementById('videos-grid');
+    if (!grid) return;
+
+    if (list.length === 0) {
+        const msg = _allVideos.length === 0
+            ? 'No generated videos yet. Use Auto-Create on an idea to get started.'
+            : 'No videos match your filter.';
+        grid.innerHTML = `
+            <div class="glass" style="grid-column:1/-1;padding:40px;text-align:center;">
+                <i class="ri-video-line" style="font-size:48px;color:#a29bfe;display:block;margin-bottom:12px;"></i>
+                <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;">${msg}</p>
+                ${_allVideos.length === 0 ? '<button class="btn btn-primary" onclick="switchTab(document.getElementById(\'nav-dashboard\'),\'dashboard\')"><i class="ri-rocket-fill"></i> Go to Dashboard</button>' : ''}
+            </div>`;
+        return;
+    }
+
+    const statusMeta = {
+        awaiting_approval: { label: 'Awaiting Review', color: '#fdcb6e', bg: 'rgba(253,203,110,0.12)' },
+        approved:          { label: 'Approved',         color: '#00b894', bg: 'rgba(0,184,148,0.12)'   },
+        published:         { label: 'Published',        color: '#00cec9', bg: 'rgba(0,206,201,0.12)'   },
+        completed:         { label: 'Completed',        color: '#a29bfe', bg: 'rgba(162,155,254,0.12)' },
+    };
+
+    grid.innerHTML = list.map(v => {
+        const videoUrl = getAssetUrl(v.video_path);
+        const sm = statusMeta[v.status] || { label: v.status, color: '#a29bfe', bg: 'rgba(162,155,254,0.1)' };
+        const score = v.quality_score != null ? Math.round(v.quality_score) : null;
+        const dateStr = v.created_at ? new Date(v.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        const dur = v.video_duration ? `${Math.round(v.video_duration)}s` : '';
+        const hook = v.hook ? escapeHtml(v.hook.slice(0, 90)) + (v.hook.length > 90 ? '…' : '') : '';
+
+        return `
+        <div class="glass" style="border-radius:18px;padding:0;overflow:hidden;border:1px solid rgba(255,255,255,0.07);transition:transform 0.15s,box-shadow 0.15s;"
+             onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 12px 32px rgba(0,0,0,0.4)'"
+             onmouseout="this.style.transform='';this.style.boxShadow=''">
+
+            <!-- Thumbnail -->
+            <div style="position:relative;background:#000;height:220px;overflow:hidden;cursor:pointer;"
+                 onclick="playVideoDirect('${videoUrl}', '${escapeHtml(v.title || '')}')">
+                <video src="${videoUrl}#t=0.5" style="width:100%;height:100%;object-fit:cover;" preload="metadata"></video>
+                <!-- Hover play overlay -->
+                <div style="position:absolute;inset:0;background:rgba(0,0,0,0.35);opacity:0;transition:opacity 0.2s;display:flex;align-items:center;justify-content:center;"
+                     onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0'">
+                    <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#00b894,#00cec9);display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(0,184,148,0.5);">
+                        <i class="ri-play-fill" style="font-size:24px;color:#fff;margin-left:3px;"></i>
+                    </div>
+                </div>
+                <!-- Duration badge -->
+                ${dur ? `<span style="position:absolute;bottom:8px;right:8px;padding:2px 8px;background:rgba(0,0,0,0.7);border-radius:6px;font-size:11px;color:#fff;font-weight:600;">${dur}</span>` : ''}
+                <!-- Score badge -->
+                ${score != null ? `<span style="position:absolute;top:8px;right:8px;padding:3px 10px;background:rgba(0,0,0,0.75);border-radius:100px;font-size:11px;font-weight:700;color:#fdcb6e;">⭐ ${score}</span>` : ''}
+            </div>
+
+            <!-- Card body -->
+            <div style="padding:14px 16px 16px;">
+                <!-- Status + date row -->
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <span style="padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700;color:${sm.color};background:${sm.bg};">
+                        ${sm.label}
+                    </span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:11px;color:var(--text-muted);">${v.platform || ''}</span>
+                        <span style="font-size:11px;color:var(--text-muted);">${dateStr}</span>
+                    </div>
+                </div>
+
+                <!-- Title -->
+                <h3 style="font-size:14px;font-weight:700;margin-bottom:${hook ? '6px' : '12px'};line-height:1.35;color:#fff;">
+                    ${escapeHtml(v.title || 'Untitled')}
+                </h3>
+
+                <!-- Hook preview -->
+                ${hook ? `<p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;font-style:italic;">"${hook}"</p>` : ''}
+
+                <!-- Actions -->
+                <div style="display:flex;gap:8px;">
+                    <button onclick="playVideoDirect('${videoUrl}', '${escapeHtml(v.title || '')}')"
+                        style="flex:1;padding:7px;font-size:12px;border-radius:9px;border:none;background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;">
+                        <i class="ri-play-fill"></i> Play
+                    </button>
+                    <button onclick="switchTab(document.getElementById('nav-pipeline'),'pipeline');inspectContent('${v.id}')"
+                        style="padding:7px 11px;font-size:12px;border-radius:9px;border:1px solid rgba(162,155,254,0.3);background:rgba(162,155,254,0.1);color:#a29bfe;cursor:pointer;display:flex;align-items:center;gap:4px;"
+                        title="Open in Inspector">
+                        <i class="ri-search-eye-line"></i>
+                    </button>
+                    <a href="${videoUrl}" download="${(v.title || 'video').replace(/[^a-zA-Z0-9]/g,'_')}.mp4"
+                        style="padding:7px 11px;font-size:12px;border-radius:9px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;text-decoration:none;display:flex;align-items:center;gap:4px;"
+                        title="Download MP4">
+                        <i class="ri-download-line"></i>
+                    </a>
+                    ${v.status === 'awaiting_approval' ? `
+                    <button onclick="openHitlInspector('${v.id}')"
+                        style="padding:7px 11px;font-size:12px;border-radius:9px;border:1px solid rgba(253,203,110,0.3);background:rgba(253,203,110,0.1);color:#fdcb6e;cursor:pointer;"
+                        title="Review &amp; Approve">
+                        <i class="ri-checkbox-circle-line"></i>
+                    </button>` : ''}
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
 
 async function resetAllData() {
     if (!confirm("Are you sure you want to clear all database entries and generated video assets?")) return;

@@ -164,12 +164,48 @@
 
             <!-- TAB 4: VIDEOS GALLERY VIEW -->
             <div class="dashboard-content" id="view-videos" style="display: none;">
-                <div style="margin-bottom: 24px;">
-                    <h2 class="section-title" style="margin-bottom: 4px;">Generated Videos Gallery</h2>
-                    <p style="color: var(--text-muted); font-size: 14px;">Browse, play, and download your rendered short-form videos.</p>
+                <!-- Toolbar -->
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                    <h2 class="section-title" style="margin-bottom: 0;">Videos Gallery</h2>
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <!-- Search -->
+                        <div style="position: relative;">
+                            <i class="ri-search-line" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 14px;"></i>
+                            <input type="text" id="videosSearch" placeholder="Search videos..." oninput="filterVideos()"
+                                style="padding: 8px 12px 8px 32px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; font-size: 13px; width: 200px; outline: none;">
+                        </div>
+                        <!-- Sort -->
+                        <select id="videosSort" onchange="filterVideos()"
+                            style="padding: 8px 12px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; font-size: 13px; cursor: pointer;">
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="score_desc">Highest score</option>
+                            <option value="score_asc">Lowest score</option>
+                        </select>
+                    </div>
                 </div>
 
-                <div id="videos-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px;">
+                <!-- Status filter tabs -->
+                <div style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <button class="videos-tab-btn active" data-status="all" onclick="setVideosTab(this, 'all')"
+                        style="padding: 6px 16px; border-radius: 100px; border: 1px solid rgba(162,155,254,0.5); background: rgba(162,155,254,0.15); color: #a29bfe; font-size: 13px; font-weight: 600; cursor: pointer;">
+                        All <span id="vcount-all" class="tab-count"></span>
+                    </button>
+                    <button class="videos-tab-btn" data-status="awaiting_approval" onclick="setVideosTab(this, 'awaiting_approval')"
+                        style="padding: 6px 16px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 13px; cursor: pointer;">
+                        Awaiting Review <span id="vcount-awaiting_approval" class="tab-count"></span>
+                    </button>
+                    <button class="videos-tab-btn" data-status="approved" onclick="setVideosTab(this, 'approved')"
+                        style="padding: 6px 16px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 13px; cursor: pointer;">
+                        Approved <span id="vcount-approved" class="tab-count"></span>
+                    </button>
+                    <button class="videos-tab-btn" data-status="published" onclick="setVideosTab(this, 'published')"
+                        style="padding: 6px 16px; border-radius: 100px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 13px; cursor: pointer;">
+                        Published <span id="vcount-published" class="tab-count"></span>
+                    </button>
+                </div>
+
+                <div id="videos-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
                     <!-- Dynamically populated via JS -->
                 </div>
             </div>
