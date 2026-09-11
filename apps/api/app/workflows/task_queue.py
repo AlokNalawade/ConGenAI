@@ -83,7 +83,14 @@ async def enqueue_pipeline_job(
 ) -> str:
     """
     Enqueue a pipeline job into the Redis queue.
-    If Redis is offline, instantly (< 5ms) falls back to local background worker task.
+
+    If Redis is unavailable, the job remains in QUEUED state in the database.
+    It will be picked up automatically by recover_queued_jobs() once Redis
+    becomes available again.
+
+    IMPORTANT: Pipeline work NEVER executes inside the FastAPI process.
+    Only the arq worker (a separate process) calls execute_pipeline_job().
+
     Returns the job ID.
     """
     if await is_redis_available():
@@ -100,18 +107,12 @@ async def enqueue_pipeline_job(
             logger.info(f"Enqueued pipeline job {job_id} to Redis (arq_id={arq_job.job_id})")
             return arq_job.job_id
         except Exception as e:
-            logger.warning(f"Redis enqueue failed ({e}), falling back to background worker task...")
+            logger.warning(f"Redis enqueue failed ({e}). Job {job_id} remains QUEUED in DB — will be retried when Redis becomes available.")
+            return job_id
 
-    logger.info(f"Executing job {job_id} via background worker task...")
-    asyncio.create_task(
-        execute_pipeline_job(
-            ctx={},
-            job_id=job_id,
-            content_id=content_id,
-            pipeline_run_id=pipeline_run_id,
-            model_overrides=model_overrides or {},
-            resume=resume,
-        )
+    logger.warning(
+        f"Redis unavailable — job {job_id} left in QUEUED state in database. "
+        "Start the arq worker once Redis is ready; recover_queued_jobs() will pick it up automatically."
     )
     return job_id
 
@@ -235,6 +236,7 @@ async def _heartbeat_loop(job_id: str, interval: int = 30):
 async def recover_stale_jobs():
     """
     Find jobs marked 'running' whose heartbeat is stale and re-enqueue them.
+    Handles the case where a worker died mid-job (process crash, OOM, SIGKILL).
     Called on worker startup.
     """
     cutoff = datetime.utcnow() - timedelta(seconds=compute_config.stale_job_timeout_seconds)
@@ -250,13 +252,12 @@ async def recover_stale_jobs():
 
         if not stale_jobs:
             logger.info("No stale jobs found on startup.")
-            return
-
-        logger.warning(f"Found {len(stale_jobs)} stale jobs — re-enqueueing...")
-        for job in stale_jobs:
-            job.status = "queued"
-            job.error = f"Re-queued: heartbeat stale since {job.last_heartbeat}"
-        await db.commit()
+        else:
+            logger.warning(f"Found {len(stale_jobs)} stale jobs — re-enqueueing...")
+            for job in stale_jobs:
+                job.status = "queued"
+                job.error = f"Re-queued: heartbeat stale since {job.last_heartbeat}"
+            await db.commit()
 
     # Re-enqueue after committing status change
     for job in stale_jobs:
@@ -273,14 +274,53 @@ async def recover_stale_jobs():
             logger.error(f"Failed to re-enqueue stale job {job.id}: {e}")
 
 
+async def recover_queued_jobs():
+    """
+    Find jobs in QUEUED state that were never dispatched to Redis (e.g. Redis was
+    down when the API accepted the request) and enqueue them now.
+
+    This is the recovery path for the no-asyncio-fallback architecture:
+      API receives request → job inserted as QUEUED → Redis unavailable → 202 returned
+      Worker starts (Redis now available) → recover_queued_jobs() → enqueue → execute
+
+    Called on worker startup, after recover_stale_jobs().
+    """
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(PipelineJobDB).filter(
+                PipelineJobDB.status == "queued",
+            )
+        )
+        queued_jobs = result.scalars().all()
+
+    if not queued_jobs:
+        logger.info("No QUEUED jobs found on startup.")
+        return
+
+    logger.info(f"Found {len(queued_jobs)} QUEUED jobs — dispatching to Redis...")
+    for job in queued_jobs:
+        try:
+            await enqueue_pipeline_job(
+                job_id=job.id,
+                content_id=str(job.content_id),
+                pipeline_run_id=str(job.pipeline_run_id) if job.pipeline_run_id else str(uuid.uuid4()),
+                model_overrides=job.model_overrides or {},
+                resume=bool(job.resume),
+            )
+            logger.info(f"Dispatched queued job {job.id} to Redis")
+        except Exception as e:
+            logger.error(f"Failed to dispatch queued job {job.id}: {e}")
+
+
 # --- Startup hook ---
 
 async def on_worker_startup(ctx: dict):
     """Called once when the arq worker process starts."""
-    logger.info("arq worker starting — recovering stale jobs...")
+    logger.info("arq worker starting — running startup recovery...")
     from app.db.init_db import init_db
     await init_db()
-    await recover_stale_jobs()
+    await recover_stale_jobs()   # handles crashed mid-run jobs
+    await recover_queued_jobs()  # handles jobs queued while Redis was down
     logger.info("arq worker ready.")
 
 

@@ -116,13 +116,12 @@ class ContentPipeline:
                     ) for sc in sc_res
                 ])
 
-        # 5. Scene Assets (lineage-aware)
+        # 5. Scene Assets (strictly scoped to this pipeline run)
         db_scenes = await self._find_artifacts_list(
             db, DBScene, ctx.content_id, run_id, "completed",
             order_by=DBScene.scene_number
         )
 
-        # Query assets scoped to this pipeline run first, fallback to content_id
         if run_id:
             a_res = await db.execute(
                 select(DBAsset).filter(
@@ -132,16 +131,8 @@ class ContentPipeline:
                 )
             )
             db_assets = a_res.scalars().all()
-            if not db_assets:
-                # Fallback: content_id only (for legacy or first-run data)
-                a_res = await db.execute(
-                    select(DBAsset).filter(
-                        DBAsset.content_id == ctx.content_id,
-                        DBAsset.status == "completed"
-                    )
-                )
-                db_assets = a_res.scalars().all()
         else:
+            # Legacy fallback — only when content has no pipeline_run_id
             a_res = await db.execute(
                 select(DBAsset).filter(
                     DBAsset.content_id == ctx.content_id,
@@ -165,7 +156,13 @@ class ContentPipeline:
 
     async def _find_artifact(self, db, model_cls, content_id, run_id, status):
         """
-        Find a single artifact, scoped by pipeline_run_id first, fallback to content_id only.
+        Find a single artifact scoped strictly to pipeline_run_id.
+
+        Isolation contract:
+        - When run_id is provided: query is STRICTLY scoped to that run only.
+          No cross-run fallback. Run B can never see Run A's artifacts.
+        - When run_id is None: legacy content (pre-dates pipeline_run_id); fall
+          back to content_id-only query so old data remains readable.
         """
         if run_id:
             result = await db.execute(
@@ -175,11 +172,9 @@ class ContentPipeline:
                     model_cls.status == status,
                 ).order_by(model_cls.created_at.desc())
             )
-            row = result.scalars().first()
-            if row:
-                return row
+            return result.scalars().first()
 
-        # Fallback: content_id only
+        # Legacy fallback — only reached when run_id is None (no pipeline_run_id column value)
         result = await db.execute(
             select(model_cls).filter(
                 model_cls.content_id == content_id,
@@ -190,7 +185,11 @@ class ContentPipeline:
 
     async def _find_artifacts_list(self, db, model_cls, content_id, run_id, status, order_by=None):
         """
-        Find multiple artifacts, scoped by pipeline_run_id first, fallback to content_id only.
+        Find multiple artifacts scoped strictly to pipeline_run_id.
+
+        Isolation contract:
+        - When run_id is provided: STRICTLY scoped — no cross-run fallback.
+        - When run_id is None: legacy content fallback to content_id-only.
         """
         order = order_by if order_by is not None else model_cls.created_at.desc()
 
@@ -202,11 +201,9 @@ class ContentPipeline:
                     model_cls.status == status,
                 ).order_by(order)
             )
-            rows = result.scalars().all()
-            if rows:
-                return rows
+            return result.scalars().all()
 
-        # Fallback
+        # Legacy fallback — only reached when run_id is None
         result = await db.execute(
             select(model_cls).filter(
                 model_cls.content_id == content_id,
@@ -310,10 +307,30 @@ class ContentPipeline:
                     has_scenes = True
                     await log_manager.broadcast(f"⏩ [Resume] {len(ctx.scene_plan.scenes)} Scenes loaded. Skipping Scene Planning step.", agent="ContentPipeline")
 
-                # Check final video asset
-                a_res = await db.execute(select(DBAsset).filter(DBAsset.content_id == content_id))
+                # Check final video asset — strictly scoped to this pipeline run
+                if run_id:
+                    a_res = await db.execute(
+                        select(DBAsset).filter(
+                            DBAsset.content_id == content_id,
+                            DBAsset.pipeline_run_id == run_id,
+                            DBAsset.asset_type == "video",
+                            DBAsset.status == "completed",
+                        )
+                    )
+                else:
+                    a_res = await db.execute(
+                        select(DBAsset).filter(
+                            DBAsset.content_id == content_id,
+                            DBAsset.asset_type == "video",
+                            DBAsset.status == "completed",
+                        )
+                    )
                 db_assets = a_res.scalars().all()
-                vid_asset = next((a for a in db_assets if a.asset_type == "video" and os.path.exists(a.path) and os.path.getsize(a.path) > 1000), None)
+                vid_asset = next(
+                    (a for a in db_assets
+                     if os.path.exists(a.path) and os.path.getsize(a.path) > 1000),
+                    None
+                )
                 if vid_asset:
                     has_render = True
                     ctx.final_video_path = vid_asset.path
