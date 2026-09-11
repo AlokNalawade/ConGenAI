@@ -1,3 +1,6 @@
+import asyncio
+import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,9 +9,33 @@ from app.core.config import settings
 from app.api.v1 import ideas, content, research, scripts, scenes, assets, video, pipeline
 from app.api import ws
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start background tasks on startup, cancel them on shutdown."""
+    tasks = []
+
+    # Start the Redis pub/sub subscriber only when not in test mode
+    if not os.getenv("TESTING"):
+        from app.core.logging import redis_subscriber_task
+        sub_task = asyncio.create_task(redis_subscriber_task())
+        tasks.append(sub_task)
+
+    yield  # application runs here
+
+    # Shutdown: cancel all background tasks
+    for t in tasks:
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan,
 )
 
 # Set all CORS enabled origins
@@ -58,7 +85,6 @@ async def websocket_logs(websocket: WebSocket):
         log_manager.disconnect(websocket)
 
 # Mount static files & generated assets
-import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 DATA_ASSETS_DIR = settings.ASSETS_DIR
