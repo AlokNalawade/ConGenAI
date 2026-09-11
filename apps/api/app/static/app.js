@@ -520,14 +520,15 @@ ws.onmessage = function(event) {
             }
         }
         
-        // Auto-refresh pipeline view when worker logs progress
-        if (data.agent === 'Worker' || data.agent === 'ContentPipeline') {
-            fetchPipeline();
-        }
+        // Auto-refresh pipeline view on any incoming agent log event
+        fetchPipeline();
     } catch (e) {
         console.error("Failed to parse log message:", event.data);
     }
 };
+
+// Polling interval every 3 seconds to keep dashboard & cards 100% in sync
+setInterval(fetchPipeline, 3000);
 
 function playVideoDirect(url, title = "Video Preview") {
     const player = document.getElementById('videoPlayer');
