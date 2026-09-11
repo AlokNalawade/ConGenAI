@@ -37,7 +37,7 @@ VALID_TRANSITIONS: Dict[WorkflowState, Set[WorkflowState]] = {
     WorkflowState.VOICE: {WorkflowState.RENDER, WorkflowState.FAILED},
     WorkflowState.RENDER: {WorkflowState.QUALITY_CHECK, WorkflowState.FAILED},
     WorkflowState.QUALITY_CHECK: {WorkflowState.AWAITING_APPROVAL, WorkflowState.APPROVED, WorkflowState.FAILED},
-    WorkflowState.AWAITING_APPROVAL: {WorkflowState.APPROVED, WorkflowState.RESEARCH, WorkflowState.STRATEGY, WorkflowState.SCRIPT, WorkflowState.SCENES, WorkflowState.FAILED},
+    WorkflowState.AWAITING_APPROVAL: {WorkflowState.APPROVED, WorkflowState.RESEARCH, WorkflowState.STRATEGY, WorkflowState.SCRIPT, WorkflowState.SCENES, WorkflowState.ASSETS, WorkflowState.VOICE, WorkflowState.FAILED},
     WorkflowState.APPROVED: {WorkflowState.PUBLISHED, WorkflowState.FAILED},
     WorkflowState.PUBLISHED: {WorkflowState.ANALYTICS, WorkflowState.FAILED},
     WorkflowState.ANALYTICS: set(),

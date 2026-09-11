@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import Optional, Dict, List
+from sqlalchemy import delete
+from typing import Optional, Dict, List, Literal
 import uuid
 
 from app.db.database import get_db, AsyncSessionLocal
@@ -10,6 +11,7 @@ from app.db.models import (
     Content as DBContent,
     ContentIdea as DBContentIdea,
     ContentBatch as DBContentBatch,
+    PipelineRun as DBPipelineRun,
     Research as DBResearch,
     Script as DBScript,
     Scene as DBScene,
@@ -220,17 +222,116 @@ async def approve_content(content_id: uuid.UUID, db: AsyncSession = Depends(get_
     }
 
 
-@router.post("/regenerate")
-async def regenerate_content(content_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+class RegenerateBody(BaseModel):
+    mode: Literal["full", "visuals"] = Field(
+        default="full",
+        description=(
+            "'full'    — Start a completely new pipeline run from scratch. "
+            "All stages (research, strategy, script, scenes, media, render) are re-run. "
+            "Use when you want a completely different angle or script.\n"
+            "'visuals' — Keep the existing script and scene plan. Only regenerate "
+            "images, audio, and video. 4× faster than full. "
+            "Use when the script is good but you dislike the visual style."
+        )
+    )
+
+
+@router.post("/regenerate", status_code=status.HTTP_202_ACCEPTED)
+async def regenerate_content(
+    content_id: uuid.UUID,
+    body: Optional[RegenerateBody] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Regenerate a content item.
+
+    mode=full (default):
+        Starts a brand-new pipeline run with a fresh pipeline_run_id.
+        Every stage is re-executed: research → strategy → script → scenes → media → render.
+        Use when the script angle or hook was wrong.
+
+    mode=visuals:
+        Keeps the approved script and scene plan from the most recent completed run.
+        Deletes only the image/audio/video assets for that run, then resumes it.
+        The pipeline jumps straight to media generation (step 5), skipping all LLM steps.
+        Use when the script is good but you dislike the visuals, pacing, or voice.
+    """
     result = await db.execute(select(DBContent).filter(DBContent.id == content_id))
     content = result.scalars().first()
     if not content:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    job = await job_manager.create_job(content_id=str(content_id), resume=False)
-    return {
-        "job_id": job.job_id,
-        "content_id": str(content_id),
-        "status": "202_accepted",
-        "message": "Pipeline regeneration triggered."
-    }
+    mode = (body.mode if body else None) or "full"
+
+    if mode == "visuals":
+        # Find the most recent completed pipeline run for this content
+        run_result = await db.execute(
+            select(DBPipelineRun)
+            .filter(DBPipelineRun.content_id == content_id)
+            .order_by(DBPipelineRun.created_at.desc())
+        )
+        pipeline_run = run_result.scalars().first()
+
+        if not pipeline_run:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No pipeline run found for this content. "
+                    "Run the full pipeline first before using visuals-only mode."
+                )
+            )
+
+        run_id = pipeline_run.id
+
+        # Delete only media assets (image, audio, video, subtitle) from this run.
+        # Research, strategy, script, and scene rows are left untouched.
+        # hydrate_context() will reload them and skip those steps automatically.
+        await db.execute(
+            delete(DBAsset).where(
+                DBAsset.content_id == content_id,
+                DBAsset.pipeline_run_id == run_id,
+                DBAsset.asset_type.in_(["image", "audio", "video", "subtitle"]),
+            )
+        )
+
+        # Reset run status so the pipeline can re-enter it
+        pipeline_run.status = "queued"
+        pipeline_run.current_stage = "RESUMING_VISUALS"
+        pipeline_run.error = None
+
+        # Reset content status out of awaiting_approval so the dashboard shows it as in-progress
+        await update_workflow_state(db, content_id, WorkflowState.GENERATING_ASSETS)
+        await db.commit()
+
+        # Re-enqueue with resume=True and the SAME run_id.
+        # hydrate_context() will find research/strategy/script/scenes (still in DB, same run_id)
+        # but find no media assets (just deleted) → pipeline goes straight to step 5.
+        job = await job_manager.create_job(
+            content_id=str(content_id),
+            resume=True,
+            pipeline_run_id=str(run_id),
+        )
+
+        return {
+            "job_id": job.job_id,
+            "content_id": str(content_id),
+            "pipeline_run_id": str(run_id),
+            "mode": "visuals",
+            "status": "202_accepted",
+            "message": (
+                "Visuals-only regeneration queued. Script and scene plan are preserved. "
+                "Regenerating images, audio, and video only."
+            ),
+        }
+
+    else:
+        # mode=full: new pipeline_run_id, re-run everything from scratch
+        job = await job_manager.create_job(content_id=str(content_id), resume=False)
+        return {
+            "job_id": job.job_id,
+            "content_id": str(content_id),
+            "pipeline_run_id": job.pipeline_run_id,
+            "mode": "full",
+            "status": "202_accepted",
+            "message": "Full pipeline regeneration queued. All stages will be re-run from scratch.",
+        }

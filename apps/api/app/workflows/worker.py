@@ -104,14 +104,18 @@ class JobManager:
         resume: bool = True,
         idempotency_key: Optional[str] = None,
         enqueue: bool = True,
+        pipeline_run_id: Optional[str] = None,
     ) -> PipelineJob:
         """
         Create a new pipeline job in the DB and enqueue it to Redis.
-        
+
+        pipeline_run_id: if provided, reuses an existing run ID (used by visuals-only
+        regeneration to resume the same run after clearing its media assets).
+
         Issue #4: Uses INSERT with ON CONFLICT for race-safe idempotency.
         """
         job_id = f"job_{uuid.uuid4().hex[:8]}"
-        pipeline_run_id = str(uuid.uuid4())
+        pipeline_run_id = pipeline_run_id or str(uuid.uuid4())
 
         job = PipelineJob(
             job_id=job_id,

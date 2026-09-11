@@ -833,17 +833,51 @@ async function hitlResume() {
     }
 }
 
-async function hitlRegenerate() {
+async function hitlRegenerate(mode = 'full') {
     if (!currentHitlContentId) return;
+
+    const labels = {
+        visuals: {
+            confirm: 'Regenerate visuals only?\n\nYour script and scene plan will be kept.\nOnly images, audio, and video will be re-generated.\n\nThis is ~4× faster than a full regeneration.',
+            toast: 'Regenerating visuals — script preserved. Images, audio & video will be re-generated.',
+        },
+        full: {
+            confirm: 'Start a full regeneration?\n\nEverything will be re-generated from scratch:\nresearch, script, scenes, images, audio, and video.\n\nThis will take the full pipeline time.',
+            toast: 'Full regeneration triggered. All stages will re-run from scratch.',
+        },
+    };
+
+    const label = labels[mode] || labels.full;
+    if (!confirm(label.confirm)) return;
+
+    // Disable both regen buttons while the request is in flight
+    const visBtnEl = document.getElementById('hitlRegenVisualsBtn');
+    const fullBtnEl = document.getElementById('hitlRegenBtn');
+    if (visBtnEl) visBtnEl.disabled = true;
+    if (fullBtnEl) fullBtnEl.disabled = true;
+
     try {
-        const res = await fetch(`${API_BASE}/content/${currentHitlContentId}/regenerate`, { method: 'POST' });
+        const res = await fetch(`${API_BASE}/content/${currentHitlContentId}/regenerate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode }),
+        });
+
         if (res.ok) {
-            alert("Regeneration triggered via worker queue!");
+            const data = await res.json();
+            alert(label.toast);
             toggleModal('hitlModal');
             fetchPipeline();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert(`Regeneration failed: ${err.detail || res.statusText}`);
         }
     } catch (e) {
-        console.error("Failed to regenerate content:", e);
+        console.error('Failed to regenerate content:', e);
+        alert('Network error — could not trigger regeneration.');
+    } finally {
+        if (visBtnEl) visBtnEl.disabled = false;
+        if (fullBtnEl) fullBtnEl.disabled = false;
     }
 }
 

@@ -321,14 +321,22 @@
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 8px;">
                             <button id="hitlApproveBtn" onclick="hitlApprove()" class="btn btn-primary btn-block" style="background: linear-gradient(135deg, #00b894, #00cec9);">
-                                <i class="ri-rocket-line"></i> Approve & Publish
+                                <i class="ri-rocket-line"></i> Approve &amp; Publish
                             </button>
                             <button id="hitlResumeBtn" onclick="hitlResume()" class="btn btn-block" style="background: rgba(162, 155, 254, 0.2); color: #a29bfe; border: 1px solid rgba(162, 155, 254, 0.4);">
                                 <i class="ri-play-circle-line"></i> Resume Pipeline
                             </button>
-                            <button id="hitlRegenBtn" onclick="hitlRegenerate()" class="btn btn-block" style="background: rgba(255, 118, 117, 0.15); color: #ff7675; border: 1px solid rgba(255, 118, 117, 0.3);">
-                                <i class="ri-refresh-line"></i> Regenerate Content
-                            </button>
+                            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+                                <p style="font-size: 11px; color: var(--text-muted); margin: 0;">Don't like it? Regenerate:</p>
+                                <button id="hitlRegenVisualsBtn" onclick="hitlRegenerate('visuals')" class="btn btn-block" style="background: rgba(253, 203, 110, 0.15); color: #fdcb6e; border: 1px solid rgba(253, 203, 110, 0.3);">
+                                    <i class="ri-image-edit-line"></i> Regenerate Visuals
+                                    <span style="font-size: 10px; opacity: 0.7; display: block; margin-top: 1px;">Keeps script · Re-runs images, audio, video</span>
+                                </button>
+                                <button id="hitlRegenBtn" onclick="hitlRegenerate('full')" class="btn btn-block" style="background: rgba(255, 118, 117, 0.15); color: #ff7675; border: 1px solid rgba(255, 118, 117, 0.3);">
+                                    <i class="ri-refresh-line"></i> Full Regeneration
+                                    <span style="font-size: 10px; opacity: 0.7; display: block; margin-top: 1px;">New script, new visuals · Slower</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
