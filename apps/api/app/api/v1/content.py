@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_
 from typing import List
 import uuid
 
@@ -46,17 +45,19 @@ async def list_videos(db: AsyncSession = Depends(get_db)):
 
     content_ids = [c.id for c in all_content]
 
-    # All final video assets for these content items in one query
-    # Final video: asset_type="video", scene_id=NULL (scene videos have a scene_id)
+    # All final video assets for these content items in one query.
+    # Order newest-first because regenerated content can have multiple final videos.
+    # The first asset encountered for each content is therefore the latest version.
     assets_res = await db.execute(
-        select(DBAsset).filter(
+        select(DBAsset)
+        .filter(
             DBAsset.content_id.in_(content_ids),
             DBAsset.asset_type == "video",
             DBAsset.scene_id.is_(None),
         )
+        .order_by(DBAsset.created_at.desc())
     )
     all_assets = assets_res.scalars().all()
-    # Keep the most recent video per content
     video_by_content = {}
     for a in all_assets:
         cid = str(a.content_id)
