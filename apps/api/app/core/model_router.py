@@ -17,11 +17,13 @@ class ModelRouter:
         "voice": "kokoro-v1.0",
     }
 
+    DEFAULT_TEXT_MAC = os.getenv("DEFAULT_MODEL") or os.getenv("LLM_DEFAULT_MODEL") or "llama3:latest"
+
     DEFAULTS_MAC = {
-        "research": "llama3.2:3b",
-        "strategy": "llama3.2:3b",
-        "script": "llama3.2:3b",
-        "scene": "llama3.2:3b",
+        "research": DEFAULT_TEXT_MAC,
+        "strategy": DEFAULT_TEXT_MAC,
+        "script": DEFAULT_TEXT_MAC,
+        "scene": DEFAULT_TEXT_MAC,
         "image": "mock-image",
         "video": "mock-video",
         "voice": "mock-audio",

@@ -82,6 +82,17 @@ class OllamaModelProvider:
                 f"{self.host}/api/generate",
                 json={"model": spec.name, "keep_alive": keep_alive},
             )
+            if resp.status_code == 404:
+                err_detail = f"Model '{spec.name}' not found in Ollama."
+                try:
+                    data = resp.json()
+                    if "error" in data:
+                        err_detail = data["error"]
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    f"Ollama error: {err_detail}. Run 'ollama pull {spec.name}' or switch to an installed model (e.g. llama3:latest) in settings."
+                )
             resp.raise_for_status()
             logger.info("Ollama model %s loaded successfully into memory", spec.name)
         except Exception as e:

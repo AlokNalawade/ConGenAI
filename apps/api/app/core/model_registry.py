@@ -49,9 +49,12 @@ class ModelRegistry:
     @classmethod
     def for_mac(cls) -> "ModelRegistry":
         return cls({
+            "llama3:latest": ModelSpec("llama3:latest", "ollama", "text", 4.5),
+            "llama3": ModelSpec("llama3", "ollama", "text", 4.5),
+            "deepseek-r1:8b": ModelSpec("deepseek-r1:8b", "ollama", "text", 5.0),
+            "deepseek-r1": ModelSpec("deepseek-r1", "ollama", "text", 5.0),
             "llama3.2:1b": ModelSpec("llama3.2:1b", "ollama", "text", 1.5),
             "llama3.2:3b": ModelSpec("llama3.2:3b", "ollama", "text", 2.5),
-            "llama3:latest": ModelSpec("llama3:latest", "ollama", "text", 4.5),
             "qwen2.5:1.5b": ModelSpec("qwen2.5:1.5b", "ollama", "text", 1.5),
             "qwen2.5:7b": ModelSpec("qwen2.5:7b", "ollama", "text", 4.5),
             "mock-image": ModelSpec("mock-image", "mock", "image", 0.0),
