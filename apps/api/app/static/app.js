@@ -65,7 +65,7 @@ async function loadAvailableModels() {
 }
 loadAvailableModels();
 
-function updateBannerStatus() {
+function updateBannerStatus(contents) {
     const banner = document.getElementById('pipeline-status-banner');
     const textEl = document.getElementById('pipeline-status-text');
     if (!banner || !textEl) return;
@@ -76,6 +76,15 @@ function updateBannerStatus() {
         const task = activeTasks[firstKey];
         textEl.innerText = `${task.title ? `"${task.title}"` : 'Video'}: ${task.step || 'Processing via Durable Worker...'}`;
         banner.style.display = 'inline-flex';
+    } else if (Array.isArray(contents)) {
+        const activeContent = contents.find(c => !['idea', 'planning', 'awaiting_approval', 'approved', 'completed', 'failed'].includes(c.status));
+        if (activeContent) {
+            const badge = getStageBadge(activeContent.status);
+            textEl.innerText = `"${activeContent.title || 'Video'}": ${badge.label} (${badge.percent || 50}%)`;
+            banner.style.display = 'inline-flex';
+        } else {
+            banner.style.display = 'none';
+        }
     } else {
         banner.style.display = 'none';
     }
@@ -143,6 +152,11 @@ function renderKanban(contents) {
     contents.forEach(content => {
         let colId = 'planning';
         const s = content.status || 'idea';
+
+        // Clear optimistic activeTasks state once the backend has advanced or completed
+        if (activeTasks[content.id] && (!['idea', 'planning'].includes(s) || ['awaiting_approval', 'approved', 'completed', 'failed'].includes(s))) {
+            delete activeTasks[content.id];
+        }
         
         if (['researching', 'strategizing', 'scripting', 'planning_scenes'].includes(s)) colId = 'scripting';
         if (['generating_assets', 'media', 'rendering_video', 'assembly'].includes(s)) colId = 'media';
@@ -204,7 +218,7 @@ function renderKanban(contents) {
         if(countEl && cols[k]) countEl.innerText = cols[k].children.length;
     });
 
-    updateBannerStatus();
+    updateBannerStatus(contents);
 }
 
 async function runPipelineWorker(contentId) {
