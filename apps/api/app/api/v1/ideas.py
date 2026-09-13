@@ -101,7 +101,17 @@ async def reset_all_data(db: AsyncSession = Depends(get_db)):
     ):
         await db.execute(delete(model_cls))
     await db.commit()
-    return {"ok": True, "message": "All data and media assets cleared successfully."}
+
+    # 3. Clean Redis task queue
+    try:
+        from app.workflows.task_queue import get_redis_pool
+        redis_pool = await get_redis_pool()
+        if redis_pool:
+            await redis_pool.flushdb()
+    except Exception:
+        pass
+
+    return {"ok": True, "message": "All data, media assets, and task queues cleared successfully."}
 
 @router.delete("/{idea_id}")
 async def delete_idea(idea_id: uuid.UUID, db: AsyncSession = Depends(get_db)):

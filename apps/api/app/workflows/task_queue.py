@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.compute_config import compute_config
 from app.core.logging import log_manager
 from app.db.database import AsyncSessionLocal
-from app.db.models import PipelineJobDB, PipelineRun as DBPipelineRun
+from app.db.models import PipelineJobDB, PipelineRun as DBPipelineRun, Content as DBContent
 from app.workflows.content_pipeline import ContentPipeline
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,28 @@ async def execute_pipeline_job(
     This runs in the worker process, NOT in the API process.
     """
     logger.info(f"Worker executing pipeline job {job_id} (content={content_id}, resume={resume})")
+
+    # Guard: check if content exists before proceeding
+    async with AsyncSessionLocal() as db:
+        content_res = await db.execute(
+            select(DBContent).filter(DBContent.id == uuid.UUID(content_id))
+        )
+        if not content_res.scalars().first():
+            logger.warning(
+                f"[Worker] Skipping job {job_id}: Content {content_id} not found in DB (item deleted or DB reset)."
+            )
+            await db.execute(
+                update(PipelineJobDB)
+                .where(PipelineJobDB.id == job_id)
+                .values(
+                    status="cancelled",
+                    error=f"Content {content_id} not found in database.",
+                    completed_at=func.now(),
+                    last_heartbeat=func.now(),
+                )
+            )
+            await db.commit()
+            return
 
     # Mark job as running + set started_at
     async with AsyncSessionLocal() as db:
@@ -339,6 +361,7 @@ class WorkerSettings:
     on_shutdown = on_worker_shutdown
     max_jobs = compute_config.max_concurrent_jobs
     job_timeout = 1800  # 30 minutes max per pipeline job
+    max_tries = 1       # Do not retry unrecoverable pipeline jobs infinitely
     redis_settings = RedisSettings(
         host=settings.REDIS_HOST,
         port=settings.REDIS_PORT,
