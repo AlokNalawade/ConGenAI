@@ -32,6 +32,15 @@ class CompositionEngine:
         os.makedirs(self.output_dir, exist_ok=True)
         self.ffmpeg_cmd = shutil.which("ffmpeg") or imageio_ffmpeg.get_ffmpeg_exe()
 
+    @staticmethod
+    def build_audio_ducking_filter(music_volume: float = 0.15, ducking_ratio: float = 6.0) -> str:
+        """Construct FFmpeg sidechain audio filter: ducks background music by -18dB during voiceover."""
+        return (
+            f"[1:a]volume={music_volume}[music];"
+            f"[0:a][music]sidechaincompress=threshold=0.08:ratio={ducking_ratio}:attack=150:release=700[aout]"
+        )
+
+
     def build_scene_video_filters(
         self,
         scene: CompositionScene,
