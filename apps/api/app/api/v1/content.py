@@ -128,6 +128,16 @@ async def delete_content(content_id: uuid.UUID, db: AsyncSession = Depends(get_d
     if db_content is None:
         raise HTTPException(status_code=404, detail="Content not found")
     
+    # Clean up physical asset files on disk
+    import os
+    assets_res = await db.execute(select(DBAsset).filter(DBAsset.content_id == content_id))
+    for a in assets_res.scalars().all():
+        if a.path and os.path.exists(a.path):
+            try:
+                os.remove(a.path)
+            except OSError:
+                pass
+
     await db.delete(db_content)
     await db.commit()
     return {"ok": True}

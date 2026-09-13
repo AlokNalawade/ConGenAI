@@ -54,6 +54,55 @@ async def update_idea(idea_id: uuid.UUID, idea: ContentIdeaUpdate, db: AsyncSess
     await db.refresh(db_idea)
     return db_idea
 
+import os
+import glob
+from sqlalchemy import delete
+from app.core.config import settings
+from app.db.models import (
+    Content as DBContent,
+    Asset as DBAsset,
+    Scene as DBScene,
+    Script as DBScript,
+    Strategy as DBStrategy,
+    Research as DBResearch,
+    AgentRun as DBAgentRun,
+    PipelineJobDB,
+    PipelineRun as DBPipelineRun,
+)
+
+@router.delete("/reset/")
+async def reset_all_data(db: AsyncSession = Depends(get_db)):
+    """
+    Clears all database tables and removes all generated media assets from disk.
+    """
+    # 1. Clean disk assets
+    for subfolder in ("images", "audio", "videos", "subtitles"):
+        folder = os.path.join(settings.ASSETS_DIR, subfolder)
+        if os.path.exists(folder):
+            for file_path in glob.glob(os.path.join(folder, "*")):
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                except OSError:
+                    pass
+
+    # 2. Clean database tables
+    for model_cls in (
+        DBAsset,
+        DBScene,
+        DBScript,
+        DBStrategy,
+        DBResearch,
+        DBAgentRun,
+        PipelineJobDB,
+        DBPipelineRun,
+        DBContent,
+        DBContentIdea,
+    ):
+        await db.execute(delete(model_cls))
+    await db.commit()
+    return {"ok": True, "message": "All data and media assets cleared successfully."}
+
 @router.delete("/{idea_id}")
 async def delete_idea(idea_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(DBContentIdea).filter(DBContentIdea.id == idea_id))

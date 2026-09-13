@@ -467,28 +467,46 @@ function _renderVideosGrid(list) {
                         title="Review &amp; Approve">
                         <i class="ri-checkbox-circle-line"></i>
                     </button>` : ''}
+                    <button onclick="deleteContent('${v.id}', '${escapeHtml(v.title || '')}')"
+                        style="padding:7px 11px;font-size:12px;border-radius:9px;border:1px solid rgba(255,118,117,0.3);background:rgba(255,118,117,0.1);color:#ff7675;cursor:pointer;display:flex;align-items:center;"
+                        title="Delete Video &amp; Assets">
+                        <i class="ri-delete-bin-line"></i>
+                    </button>
                 </div>
             </div>
         </div>`;
     }).join('');
 }
 
+async function deleteContent(contentId, title) {
+    const confirmMsg = title
+        ? `Are you sure you want to delete "${title}" and all its generated video/image/audio files?`
+        : "Delete this content item and all its files?";
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/content/${contentId}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (typeof fetchPipeline === 'function') fetchPipeline();
+        if (typeof loadVideosView === 'function') loadVideosView();
+        if (typeof loadInspectorView === 'function') loadInspectorView();
+    } catch (e) {
+        alert("Failed to delete content: " + e.message);
+    }
+}
 
 async function resetAllData() {
-    if (!confirm("Are you sure you want to clear all database entries and generated video assets?")) return;
+    if (!confirm("⚠️ Are you sure you want to permanently clear all database entries, ideas, and generated video assets? This cannot be undone.")) return;
     try {
         const res = await fetch(`${API_BASE}/ideas/reset/`, { method: 'DELETE' });
-        if (!res.ok) {
-            const contents = await (await fetch(`${API_BASE}/content/`)).json();
-            for (let c of contents) {
-                await fetch(`${API_BASE}/content/${c.id}`, { method: 'DELETE' });
-            }
-        }
-        alert("All data cleared successfully!");
-        fetchPipeline();
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        alert("All generated data, database records, and media files have been cleaned up!");
+        if (typeof fetchPipeline === 'function') fetchPipeline();
+        if (typeof loadVideosView === 'function') loadVideosView();
+        if (typeof loadInspectorView === 'function') loadInspectorView();
         switchTab(document.getElementById('nav-dashboard'), 'dashboard');
     } catch (e) {
-        alert("Reset failed: " + e);
+        alert("Reset failed: " + e.message);
     }
 }
 
@@ -1252,10 +1270,17 @@ function _buildInspectorHTML(d, contentId) {
 
     return [
         statusBar,
-        `<div style="display:flex;align-items:baseline;gap:10px;">
-            <h2 style="font-size:18px;font-weight:800;color:#fff;margin:0;">${escapeHtml(d.title || 'Untitled')}</h2>
-            <span style="font-size:12px;color:var(--text-muted);">${d.status || ''}</span>
-            ${d.quality_score != null ? `<span style="font-size:12px;color:#fdcb6e;">⭐ ${d.quality_score}</span>` : ''}
+        `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px;">
+            <div style="display:flex;align-items:baseline;gap:10px;">
+                <h2 style="font-size:18px;font-weight:800;color:#fff;margin:0;">${escapeHtml(d.title || 'Untitled')}</h2>
+                <span style="font-size:12px;color:var(--text-muted);">${d.status || ''}</span>
+                ${d.quality_score != null ? `<span style="font-size:12px;color:#fdcb6e;">⭐ ${d.quality_score}</span>` : ''}
+            </div>
+            <button onclick="deleteContent('${contentId}', '${escapeHtml(d.title || '')}')"
+                style="padding:6px 14px;font-size:12px;border-radius:8px;border:1px solid rgba(255,118,117,0.3);background:rgba(255,118,117,0.1);color:#ff7675;cursor:pointer;display:flex;align-items:center;gap:6px;"
+                title="Delete this content item and all generated assets">
+                <i class="ri-delete-bin-line"></i> Delete
+            </button>
         </div>`,
         stageCard('🔬', 'Research', 'research', st.research.done, researchBody),
         stageCard('🎯', 'Strategy', 'strategy', st.strategy.done, strategyBody),
