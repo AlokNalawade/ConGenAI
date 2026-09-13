@@ -23,7 +23,7 @@ function switchTab(linkEl, tabName) {
         if (navEl) navEl.classList.add('active');
     }
 
-    const views = ['dashboard', 'ideas', 'pipeline', 'videos', 'settings'];
+    const views = ['dashboard', 'studio', 'ideas', 'pipeline', 'videos', 'settings'];
     views.forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) {
@@ -33,6 +33,8 @@ function switchTab(linkEl, tabName) {
 
     if (tabName === 'dashboard') {
         fetchPipeline();
+    } else if (tabName === 'studio') {
+        loadStudioView();
     } else if (tabName === 'pipeline') {
         loadInspectorView();
     } else if (tabName === 'ideas') {
@@ -1331,3 +1333,182 @@ async function rerunFromStage(contentId, stage) {
         alert(`Network error: ${e.message}`);
     }
 }
+
+// -------------------------------------------------------------
+// EDITORIAL STUDIO CONTROLLER (Descript-style UX)
+// -------------------------------------------------------------
+
+let currentStudioContentId = null;
+let currentStudioPlatform = 'youtube_shorts';
+
+async function loadStudioView() {
+    try {
+        const res = await fetch(`${API_BASE}/content`);
+        if (!res.ok) return;
+        const contents = await res.json();
+        
+        const select = document.getElementById('studio-content-select');
+        if (!select) return;
+        select.innerHTML = '<option value="">Select project...</option>';
+
+        contents.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.title} (${c.status})`;
+            select.appendChild(opt);
+        });
+
+        if (!currentStudioContentId && contents.length > 0) {
+            currentStudioContentId = contents[0].id;
+        }
+
+        if (currentStudioContentId) {
+            select.value = currentStudioContentId;
+            await refreshStudioProject(currentStudioContentId);
+        }
+    } catch (e) {
+        console.error('Failed to load studio view:', e);
+    }
+}
+
+async function onStudioContentSelected(contentId) {
+    currentStudioContentId = contentId;
+    if (contentId) {
+        await refreshStudioProject(contentId);
+    }
+}
+
+async function refreshStudioProject(contentId) {
+    try {
+        const res = await fetch(`${API_BASE}/content/${contentId}/inspect`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        renderStudioStepper(data);
+        renderStudioScenes(data.scenes || []);
+        updateStudioPlatformPreview(data);
+    } catch (e) {
+        console.error('Error refreshing studio project:', e);
+    }
+}
+
+function renderStudioStepper(data) {
+    const stepper = document.getElementById('studio-stage-stepper');
+    if (!stepper) return;
+
+    const st = data.stage_status || {};
+    const stages = [
+        { icon: '🔬', name: 'Research', done: st.research?.done },
+        { icon: '🧠', name: 'Strategy', done: st.strategy?.done },
+        { icon: '✍️', name: 'Script', done: st.script?.done },
+        { icon: '🎨', name: 'Visuals', done: st.media?.image_count > 0 },
+        { icon: '🎙', name: 'Voice', done: st.media?.audio_count > 0 },
+        { icon: '🎬', name: 'Render', done: st.render?.done },
+        { icon: '🧪', name: 'QA', done: data.status === 'awaiting_approval' || data.status === 'approved' },
+    ];
+
+    stepper.innerHTML = stages.map(s => `
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1;">
+            <div style="width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; background: ${s.done ? 'rgba(0, 184, 148, 0.2)' : 'rgba(255,255,255,0.06)'}; border: 2px solid ${s.done ? '#00b894' : 'rgba(255,255,255,0.1)'}; color: ${s.done ? '#00b894' : 'var(--text-muted)'};">
+                ${s.done ? '<i class="ri-check-line" style="font-weight: bold;"></i>' : s.icon}
+            </div>
+            <span style="font-size: 11px; font-weight: 600; color: ${s.done ? '#00b894' : 'var(--text-muted)'};">${s.name}</span>
+        </div>
+    `).join('');
+}
+
+function renderStudioScenes(scenes) {
+    const list = document.getElementById('studio-scenes-list');
+    if (!list) return;
+
+    if (!scenes || scenes.length === 0) {
+        list.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px;">No scenes generated yet.</div>';
+        return;
+    }
+
+    list.innerHTML = scenes.map(s => `
+        <div class="glass" style="padding: 12px; border-radius: 10px; display: flex; gap: 14px; align-items: center;">
+            <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(108, 92, 231, 0.2); color: #a29bfe; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px;">
+                #${s.scene_number}
+            </div>
+            <div style="flex-grow: 1;">
+                <div style="font-weight: 600; font-size: 13px; color: white; margin-bottom: 2px;">
+                    ${s.visual_prompt || s.visual_description || 'Visual Scene'}
+                </div>
+                <div style="color: var(--text-muted); font-size: 12px;">
+                    "${s.narration || ''}" (${s.duration || 5}s)
+                </div>
+            </div>
+            <span style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(0, 184, 148, 0.15); color: #00b894;">Ready</span>
+        </div>
+    `).join('');
+}
+
+function setStudioPlatform(platformKey, btnEl) {
+    currentStudioPlatform = platformKey;
+    document.querySelectorAll('.platform-btn').forEach(b => {
+        b.style.background = 'transparent';
+        b.style.color = 'var(--text-muted)';
+    });
+    if (btnEl) {
+        btnEl.style.background = 'rgba(108, 92, 231, 0.2)';
+        btnEl.style.color = 'white';
+    }
+    updateStudioPlatformDetails();
+}
+
+function updateStudioPlatformPreview(data) {
+    updateStudioPlatformDetails(data?.content?.title);
+}
+
+function updateStudioPlatformDetails(topic) {
+    const title = topic || 'Current Project';
+    const hookEl = document.getElementById('studio-platform-hook');
+    const captionEl = document.getElementById('studio-platform-caption');
+    const ctaEl = document.getElementById('studio-platform-cta');
+    if (!hookEl) return;
+
+    if (currentStudioPlatform === 'linkedin') {
+        hookEl.textContent = `Most enterprise teams building ${title} are failing at the operational layer.`;
+        captionEl.textContent = `3 production lessons from scaling ${title} to millions of operations. Swipe through the carousel. ➡️`;
+        ctaEl.textContent = 'What has been your team\'s experience? Comment below.';
+    } else if (currentStudioPlatform === 'tiktok') {
+        hookEl.textContent = `Stop scrolling if you are still using default prompt settings for ${title}.`;
+        captionEl.textContent = `Have you encountered this bug yet? Let me know! #coding #ai #tech`;
+        ctaEl.textContent = 'Drop your hottest take in the comments.';
+    } else if (currentStudioPlatform === 'x_thread') {
+        hookEl.textContent = `Everyone is talking about ${title}, but 95% of teams get stuck in demo land. 🧵👇`;
+        captionEl.textContent = `A masterclass on production architecture in 6 tweets.`;
+        ctaEl.textContent = 'Retweet the first tweet if you found this valuable!';
+    } else {
+        hookEl.textContent = `Why 90% of engineers misunderstand ${title} in production.`;
+        captionEl.textContent = `The complete operational breakdown of ${title}. Subscribe for daily deep dives! #shorts`;
+        ctaEl.textContent = 'Subscribe for daily production breakdowns.';
+    }
+}
+
+async function studioTriggerAction(action) {
+    if (!currentStudioContentId) {
+        alert('Please select a project first.');
+        return;
+    }
+
+    if (action === 'preview') {
+        switchTab(null, 'pipeline');
+        await inspectContent(currentStudioContentId);
+    } else if (action === 'approve') {
+        try {
+            const res = await fetch(`${API_BASE}/content/${currentStudioContentId}/approve`, { method: 'POST' });
+            if (res.ok) {
+                alert('Content successfully approved!');
+                await refreshStudioProject(currentStudioContentId);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                alert(`Approval error: ${err.detail || res.statusText}`);
+            }
+        } catch (e) {
+            alert(`Network error: ${e.message}`);
+        }
+    }
+}
+

@@ -18,6 +18,7 @@
             </div>
             <nav>
                 <a href="#" id="nav-dashboard" class="active" onclick="switchTab(this, 'dashboard')"><i class="ri-dashboard-line"></i> Dashboard</a>
+                <a href="#" id="nav-studio" onclick="switchTab(this, 'studio')"><i class="ri-movie-2-line"></i> Studio</a>
                 <a href="#" id="nav-ideas" onclick="switchTab(this, 'ideas')"><i class="ri-lightbulb-line"></i> Ideas</a>
                 <a href="#" id="nav-pipeline" onclick="switchTab(this, 'pipeline')"><i class="ri-search-eye-line"></i> Inspector</a>
                 <a href="#" id="nav-videos" onclick="switchTab(this, 'videos')"><i class="ri-video-line"></i> Videos</a>
@@ -119,6 +120,143 @@
                             <span class="count" id="count-assembly">0</span>
                         </div>
                         <div class="column-content" id="col-assembly"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: EDITORIAL STUDIO VIEW (Descript-style) -->
+            <div class="dashboard-content" id="view-studio" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                    <div>
+                        <h2 class="section-title" style="margin-bottom: 4px;"><i class="ri-movie-2-line" style="color: #6c5ce7;"></i> Editorial Studio</h2>
+                        <p style="color: var(--text-muted); font-size: 14px;">Creator-centric timeline, viral potential scoring, multi-platform adaptation, and composition templates.</p>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <select id="studio-content-select" onchange="onStudioContentSelected(this.value)" class="glass" style="padding: 8px 16px; border-radius: 8px; color: white; background: rgba(0,0,0,0.5); border: 1px solid var(--border);">
+                            <option value="">Select project...</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="studioTriggerAction('preview')">
+                            <i class="ri-play-circle-line"></i> Preview Video
+                        </button>
+                        <button class="btn" onclick="studioTriggerAction('approve')" style="background: rgba(0, 184, 148, 0.2); border: 1px solid #00b894; color: #00b894;">
+                            <i class="ri-check-double-line"></i> Approve & Publish
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Editorial Stage Stepper (Descript-style) -->
+                <div class="glass" style="padding: 24px; border-radius: 16px; margin-bottom: 24px;">
+                    <h3 style="font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 16px;">Production Milestones</h3>
+                    <div style="display: flex; justify-content: space-between; position: relative; gap: 10px;" id="studio-stage-stepper">
+                        <!-- Populated dynamically: Research, Strategy, Script, Visuals, Voice, Render, QA -->
+                    </div>
+                </div>
+
+                <!-- Studio Grid: 2 Columns -->
+                <div style="display: grid; grid-template-columns: 360px 1fr; gap: 24px;">
+                    <!-- Left Column: Pre-Render Intelligence & DNA -->
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        <!-- Viral Scorecard -->
+                        <div class="glass" style="padding: 20px; border-radius: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                                <h3 style="font-size: 15px; font-weight: 600;"><i class="ri-fire-line" style="color: #ff7675;"></i> Viral Potential</h3>
+                                <span id="studio-viral-badge" style="background: rgba(0, 184, 148, 0.2); color: #00b894; padding: 4px 10px; border-radius: 100px; font-size: 12px; font-weight: bold;">Score 8.6</span>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 12px;">
+                                <div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                        <span style="color: var(--text-muted);">Hook Interrupt (First 3s)</span>
+                                        <span id="score-hook" style="font-weight: bold;">8.7 / 10</span>
+                                    </div>
+                                    <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+                                        <div id="bar-hook" style="width: 87%; height: 100%; background: #00b894;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                        <span style="color: var(--text-muted);">Novelty & Anti-Cliché</span>
+                                        <span id="score-novelty" style="font-weight: bold;">7.9 / 10</span>
+                                    </div>
+                                    <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+                                        <div id="bar-novelty" style="width: 79%; height: 100%; background: #fdcb6e;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                        <span style="color: var(--text-muted);">Retention & Pacing</span>
+                                        <span id="score-retention" style="font-weight: bold;">9.1 / 10</span>
+                                    </div>
+                                    <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+                                        <div id="bar-retention" style="width: 91%; height: 100%; background: #00b894;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="studio-hook-critique" style="margin-top: 16px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 12px; color: var(--text-muted); border-left: 3px solid #6c5ce7;">
+                                "Strong pattern interrupt; creates an immediate open loop in the opening 2 seconds."
+                            </div>
+                        </div>
+
+                        <!-- Content DNA -->
+                        <div class="glass" style="padding: 20px; border-radius: 16px;">
+                            <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 14px;"><i class="ri-dna-line" style="color: #a29bfe;"></i> Content DNA</h3>
+                            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 13px;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-muted);">Target Audience:</span>
+                                    <span id="studio-dna-audience" style="font-weight: 500;">Developers & Founders</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-muted);">Brand Archetype:</span>
+                                    <span id="studio-dna-archetype" style="color: #00b894;">Educational Authority</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-muted);">Visual Aesthetic:</span>
+                                    <span id="studio-dna-visual" style="color: #a29bfe;">Dark Tech Cinematic</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-muted);">Hook Philosophy:</span>
+                                    <span id="studio-dna-hook" style="color: #ff7675;">Contrarian Mythbuster</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-muted);">Composition:</span>
+                                    <span id="studio-dna-template" style="color: #fdcb6e;">Fast News Explainer</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Platform Matrix & Storyboard / Script -->
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        <!-- Platform Adaptation Switcher -->
+                        <div class="glass" style="padding: 20px; border-radius: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                                <h3 style="font-size: 15px; font-weight: 600;"><i class="ri-share-forward-line" style="color: #00cec9;"></i> Multi-Platform Adaptation</h3>
+                                <div style="display: flex; gap: 8px;">
+                                    <button class="platform-btn active" onclick="setStudioPlatform('youtube_shorts', this)" style="padding: 5px 12px; border-radius: 100px; border: 1px solid var(--border); background: rgba(108, 92, 231, 0.2); color: white; font-size: 12px; cursor: pointer;">Shorts (9:16)</button>
+                                    <button class="platform-btn" onclick="setStudioPlatform('instagram_reels', this)" style="padding: 5px 12px; border-radius: 100px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer;">Reels (9:16)</button>
+                                    <button class="platform-btn" onclick="setStudioPlatform('tiktok', this)" style="padding: 5px 12px; border-radius: 100px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer;">TikTok (9:16)</button>
+                                    <button class="platform-btn" onclick="setStudioPlatform('linkedin', this)" style="padding: 5px 12px; border-radius: 100px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer;">LinkedIn (1:1)</button>
+                                    <button class="platform-btn" onclick="setStudioPlatform('x_thread', this)" style="padding: 5px 12px; border-radius: 100px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer;">X Thread</button>
+                                </div>
+                            </div>
+                            <div id="studio-platform-details" style="padding: 14px; background: rgba(0,0,0,0.3); border-radius: 10px; font-size: 13px;">
+                                <div style="margin-bottom: 8px;"><strong style="color: #00cec9;">Platform Hook:</strong> <span id="studio-platform-hook">Loading platform hook...</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #a29bfe;">Platform Caption:</strong> <span id="studio-platform-caption">Loading platform caption...</span></div>
+                                <div><strong style="color: #fdcb6e;">Call to Action:</strong> <span id="studio-platform-cta">Subscribe for daily breakdowns</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Storyboard & Script Scene Viewer -->
+                        <div class="glass" style="padding: 20px; border-radius: 16px; flex-grow: 1;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                                <h3 style="font-size: 15px; font-weight: 600;"><i class="ri-slideshow-line" style="color: #fdcb6e;"></i> Storyboard & Script Scenes</h3>
+                                <button class="btn btn-sm" onclick="studioOpenStoryboardModal()" style="font-size: 12px; padding: 4px 10px;">
+                                    <i class="ri-edit-line"></i> Quick Edit
+                                </button>
+                            </div>
+                            <div id="studio-scenes-list" style="display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto;">
+                                <div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px;">Select a project to review storyboard scenes.</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

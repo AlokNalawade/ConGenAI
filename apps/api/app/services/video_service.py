@@ -95,3 +95,10 @@ class VideoService:
             print('stdout:', e.stdout.decode('utf8') if e.stdout else '')
             print('stderr:', err_msg)
             raise RuntimeError(f"FFmpeg concat error: {err_msg}") from e
+
+    def create_composition_video(self, composition) -> str:
+        """Render a full multi-track composition using CompositionEngine."""
+        from app.templates.composition_engine import CompositionEngine
+        engine = CompositionEngine(output_dir=self.output_dir)
+        return engine.render_composition(composition)
+

@@ -13,6 +13,8 @@ class BatchVariation(BaseModel):
     format_style: str = Field(default="Fast-paced Short")
     differentiator: str = Field(default="Unique perspective", description="How this video differs from other batch items")
     avoid_overlap_with: List[str] = Field(default_factory=list, description="Aspects covered by other videos to avoid repeating")
+    recommended_template: str = Field(default="fast_news_explainer", description="Composition template preset")
+
 
 class BatchStrategyResult(BaseModel):
     topic: str
