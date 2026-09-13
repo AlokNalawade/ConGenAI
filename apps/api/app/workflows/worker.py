@@ -209,6 +209,25 @@ class JobManager:
                 return _db_to_job(db_job)
         return None
 
+    async def get_active_job_by_content(self, content_id: str) -> Optional[PipelineJob]:
+        """
+        Get the currently active (queued or running) job for a content ID.
+        Used to prevent race conditions (e.g. concurrent regenerations or duplicate runs).
+        """
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(PipelineJobDB)
+                .filter(
+                    PipelineJobDB.content_id == uuid.UUID(str(content_id)),
+                    PipelineJobDB.status.in_(["queued", "running"]),
+                )
+                .order_by(PipelineJobDB.created_at.desc())
+            )
+            db_job = result.scalars().first()
+            if db_job:
+                return _db_to_job(db_job)
+        return None
+
     async def run_job_inline(self, job_id: str):
         """
         Execute a job synchronously (inline) — for tests only.

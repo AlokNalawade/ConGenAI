@@ -5,6 +5,7 @@ import asyncio
 from typing import Optional, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import update
 
 from app.workflows.workflow_state import WorkflowState, update_workflow_state
 from app.workflows.workflow_context import WorkflowContext
@@ -38,7 +39,7 @@ from app.agents.video import VideoAgent
 from app.quality.evaluator import QualityAgent
 from app.core.logging import log_manager
 from app.core.agent_tracker import AgentTracker
-from app.core.compute_config import compute_config
+from app.core.compute_config import compute_config, ResourceSemaphores
 from app.core.model_manager import ModelManager
 from app.core.model_router import ModelRouter
 
@@ -49,10 +50,12 @@ class ContentPipeline:
         self,
         model_manager: Optional[ModelManager] = None,
         model_router: Optional[ModelRouter] = None,
+        semaphores: Optional[ResourceSemaphores] = None,
     ):
         self.quality_agent = QualityAgent()
         self.model_manager = model_manager or ModelManager.for_profile(compute_config.profile)
         self.model_router = model_router or ModelRouter.for_profile(compute_config.profile)
+        self.semaphores = semaphores or compute_config.create_semaphores()
 
     async def hydrate_context(self, ctx: WorkflowContext, db: AsyncSession):
         """
@@ -243,6 +246,10 @@ class ContentPipeline:
         ctx.title = content.title or "Untitled Topic"
         ctx.platform = content.platform or "Shorts"
         ctx.idea_id = content.idea_id
+        if content.metadata_json:
+            ctx.strategy_dna = content.metadata_json
+            if ctx.strategy_dna.get("target_audience"):
+                ctx.target_audience = ctx.strategy_dna["target_audience"]
 
         # Issue #2: Distinguish start_new_run vs resume_run
         if resume and pipeline_run_id:
@@ -381,7 +388,14 @@ class ContentPipeline:
             )
             ctx.current_state = WorkflowState.AWAITING_APPROVAL
 
+            # Reset all other runs to is_current=False, mark completed run as current
+            await db.execute(
+                update(DBPipelineRun)
+                .where(DBPipelineRun.content_id == content_id, DBPipelineRun.id != pipeline_run.id)
+                .values(is_current=False)
+            )
             pipeline_run.status = "completed"
+            pipeline_run.is_current = True
             pipeline_run.current_stage = WorkflowState.AWAITING_APPROVAL.value
             await db.commit()
 
@@ -397,6 +411,7 @@ class ContentPipeline:
             
             pipeline_run.status = "failed"
             pipeline_run.error = str(e)
+            pipeline_run.is_current = False
             await db.commit()
 
             await update_workflow_state(db, content_id, WorkflowState.FAILED)
@@ -421,12 +436,13 @@ class ContentPipeline:
         await self.model_manager.ensure_loaded(research_model)
         agent = ResearchAgent(model=research_model)
         
-        async with AgentTracker(db, ctx.content_id, "RESEARCH", "ResearchAgent", provider=compute_config.llm.provider, model=research_model, pipeline_run_id=ctx.pipeline_run_id):
-            research_res = await agent.research_topic(
-                topic=ctx.title,
-                target_audience=ctx.target_audience,
-                platform=ctx.platform
-            )
+        async with self.semaphores.research:
+            async with AgentTracker(db, ctx.content_id, "RESEARCH", "ResearchAgent", provider=compute_config.llm.provider, model=research_model, pipeline_run_id=ctx.pipeline_run_id):
+                research_res = await agent.research_topic(
+                    topic=ctx.title,
+                    target_audience=ctx.target_audience,
+                    platform=ctx.platform
+                )
         ctx.research = research_res
 
         db_research = DBResearch(
@@ -454,12 +470,14 @@ class ContentPipeline:
         agent = StrategyAgent(model=strategy_model)
 
         research_dict = ctx.research.model_dump() if ctx.research else {}
-        async with AgentTracker(db, ctx.content_id, "STRATEGY", "StrategyAgent", provider=compute_config.llm.provider, model=strategy_model, pipeline_run_id=ctx.pipeline_run_id):
-            strategy_res = await agent.develop_strategy(
-                topic=ctx.title,
-                research_data=research_dict,
-                platform=ctx.platform
-            )
+        async with self.semaphores.llm:
+            async with AgentTracker(db, ctx.content_id, "STRATEGY", "StrategyAgent", provider=compute_config.llm.provider, model=strategy_model, pipeline_run_id=ctx.pipeline_run_id):
+                strategy_res = await agent.develop_strategy(
+                    topic=ctx.title,
+                    research_data=research_dict,
+                    platform=ctx.platform,
+                    strategy_dna=ctx.strategy_dna,
+                )
         ctx.strategy = strategy_res
 
         db_strategy = DBStrategy(
@@ -484,8 +502,9 @@ class ContentPipeline:
         agent = ScriptAgent(model=script_model)
         
         research_dict = ctx.research.model_dump() if ctx.research else {}
-        async with AgentTracker(db, ctx.content_id, "SCRIPT", "ScriptAgent", provider=compute_config.llm.provider, model=script_model, pipeline_run_id=ctx.pipeline_run_id):
-            script_res = await agent.generate_script(research_data=research_dict, platform=ctx.platform)
+        async with self.semaphores.llm:
+            async with AgentTracker(db, ctx.content_id, "SCRIPT", "ScriptAgent", provider=compute_config.llm.provider, model=script_model, pipeline_run_id=ctx.pipeline_run_id):
+                script_res = await agent.generate_script(research_data=research_dict, platform=ctx.platform)
         ctx.script = script_res
 
         db_script = DBScript(
@@ -512,8 +531,9 @@ class ContentPipeline:
         agent = SceneAgent(model=scene_model)
         
         script_dict = ctx.script.model_dump() if ctx.script else {}
-        async with AgentTracker(db, ctx.content_id, "SCENES", "SceneAgent", provider=compute_config.llm.provider, model=scene_model, pipeline_run_id=ctx.pipeline_run_id):
-            scene_plan = await agent.plan_scenes(script_data=script_dict)
+        async with self.semaphores.llm:
+            async with AgentTracker(db, ctx.content_id, "SCENES", "SceneAgent", provider=compute_config.llm.provider, model=scene_model, pipeline_run_id=ctx.pipeline_run_id):
+                scene_plan = await agent.plan_scenes(script_data=script_dict)
 
         # Validate ScenePlan consistency
         target_dur = ctx.script.estimated_duration if ctx.script else None
@@ -560,16 +580,13 @@ class ContentPipeline:
         image_agent = ImageAgent()
         voice_agent = VoiceAgent()
 
-        img_sem = asyncio.Semaphore(compute_config.image_concurrency)
-        tts_sem = asyncio.Semaphore(compute_config.tts_concurrency)
-
         async def _process_scene_assets(scene_num: int, scene_db_id: uuid.UUID, prompt: str, narration: str, scene_dur: float):
             # Check existing image asset
             existing_img = next((a for a in existing_assets if a.scene_id == scene_db_id and a.asset_type == "image" and os.path.exists(a.path) and os.path.getsize(a.path) > 100), None)
             if existing_img:
                 img_path = existing_img.path
             else:
-                async with img_sem:
+                async with self.semaphores.image_gpu:
                     async with AgentTracker(db, ctx.content_id, "ASSETS_IMAGE", "ImageAgent", provider=compute_config.image.provider, model=compute_config.image.model, pipeline_run_id=ctx.pipeline_run_id):
                         img_path = await image_agent.generate_image(prompt=prompt)
             
@@ -579,7 +596,7 @@ class ContentPipeline:
                 audio_path = existing_aud.path
                 actual_duration = existing_aud.duration or scene_dur
             else:
-                async with tts_sem:
+                async with self.semaphores.tts:
                     async with AgentTracker(db, ctx.content_id, "ASSETS_VOICE", "VoiceAgent", provider=compute_config.tts.provider, model=compute_config.tts.model, pipeline_run_id=ctx.pipeline_run_id):
                         audio_path = await voice_agent.generate_voice(text=narration)
 
@@ -677,24 +694,25 @@ class ContentPipeline:
         scene_video_paths = []
 
         sorted_scenes = sorted(ctx.scene_assets.keys())
-        async with AgentTracker(db, ctx.content_id, "RENDER", "VideoAgent", provider="ffmpeg", model="local-h264", pipeline_run_id=ctx.pipeline_run_id):
-            for sc_num in sorted_scenes:
-                data = ctx.scene_assets[sc_num]
-                img_path = data["image_path"]
-                audio_path = data["audio_path"]
-                display_text = data.get("onscreen_text") or data.get("narration")
-                duration = data.get("duration", 5.0)
+        async with self.semaphores.ffmpeg:
+            async with AgentTracker(db, ctx.content_id, "RENDER", "VideoAgent", provider="ffmpeg", model="local-h264", pipeline_run_id=ctx.pipeline_run_id):
+                for sc_num in sorted_scenes:
+                    data = ctx.scene_assets[sc_num]
+                    img_path = data["image_path"]
+                    audio_path = data["audio_path"]
+                    display_text = data.get("onscreen_text") or data.get("narration")
+                    duration = data.get("duration", 5.0)
 
-                scene_vid = await video_agent.assemble_scene(
-                    image_path=img_path,
-                    audio_path=audio_path,
-                    text=display_text,
-                    duration=duration
-                )
-                scene_video_paths.append(scene_vid)
-                data["video_path"] = scene_vid
+                    scene_vid = await video_agent.assemble_scene(
+                        image_path=img_path,
+                        audio_path=audio_path,
+                        text=display_text,
+                        duration=duration
+                    )
+                    scene_video_paths.append(scene_vid)
+                    data["video_path"] = scene_vid
 
-            final_path = await video_agent.assemble_final(scene_video_paths)
+                final_path = await video_agent.assemble_final(scene_video_paths)
         
         ctx.final_video_path = final_path
 
@@ -718,11 +736,12 @@ class ContentPipeline:
         await update_workflow_state(db, ctx.content_id, WorkflowState.QUALITY_CHECK)
         ctx.current_state = WorkflowState.QUALITY_CHECK
 
-        async with AgentTracker(db, ctx.content_id, "QUALITY_CHECK", "QualityAgent", provider="internal", model="evaluator-v1", pipeline_run_id=ctx.pipeline_run_id):
-            quality_res = await self.quality_agent.evaluate(
-                script=ctx.script,
-                scene_plan=ctx.scene_plan,
-                scene_assets=ctx.scene_assets,
-                final_video_path=ctx.final_video_path
-            )
+        async with self.semaphores.qa:
+            async with AgentTracker(db, ctx.content_id, "QUALITY_CHECK", "QualityAgent", provider="internal", model="evaluator-v1", pipeline_run_id=ctx.pipeline_run_id):
+                quality_res = await self.quality_agent.evaluate(
+                    script=ctx.script,
+                    scene_plan=ctx.scene_plan,
+                    scene_assets=ctx.scene_assets,
+                    final_video_path=ctx.final_video_path
+                )
         ctx.quality_result = quality_res

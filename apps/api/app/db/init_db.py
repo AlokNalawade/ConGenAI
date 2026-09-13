@@ -1,47 +1,51 @@
+"""
+Database initialization and migration orchestration.
+
+Uses Alembic migrations exclusively for both development and production schema management.
+Ad-hoc raw ALTER TABLE statements and create_all() schema migrations are strictly prohibited.
+"""
+import os
 import asyncio
 import logging
-from sqlalchemy import text
-from app.db.database import engine
-from app.db.models import Base
+from alembic import command
+from alembic.config import Config
 
 logger = logging.getLogger(__name__)
 
-async def init_db():
-    async with engine.begin() as conn:
-        logger.info("Creating all missing database tables...")
-        await conn.run_sync(Base.metadata.create_all)
-        
-        logger.info("Verifying database table column updates...")
-        alter_statements = [
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS parent_asset_id UUID REFERENCES assets(id);",
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;",
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS prompt TEXT;",
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS negative_prompt TEXT;",
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS seed INTEGER;",
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS workflow TEXT;",
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS sha256 VARCHAR;",
-            "ALTER TABLE assets ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'completed';",
-            "ALTER TABLE research ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
-            "ALTER TABLE research ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'completed';",
-            "ALTER TABLE strategies ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
-            "ALTER TABLE scripts ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
-            "ALTER TABLE scenes ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
-            "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS pipeline_run_id UUID;",
-            "ALTER TABLE content ADD COLUMN IF NOT EXISTS batch_id VARCHAR;",
-            "ALTER TABLE pipeline_jobs ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR;",
-            # Sprint 3: heartbeat + idempotency constraint
-            "ALTER TABLE pipeline_jobs ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ;",
-            "ALTER TABLE pipeline_jobs ALTER COLUMN started_at DROP DEFAULT;",
-            "ALTER TABLE pipeline_jobs ALTER COLUMN started_at DROP NOT NULL;",
-            "CREATE UNIQUE INDEX IF NOT EXISTS ix_job_content_idempotency ON pipeline_jobs(content_id, idempotency_key) WHERE idempotency_key IS NOT NULL;",
-        ]
-        for stmt in alter_statements:
-            try:
-                await conn.execute(text(stmt))
-            except Exception as e:
-                logger.warning(f"Column alter statement '{stmt}' skipped: {e}")
-        logger.info("Database schema sync completed successfully.")
+_db_initialized = False
+
+
+def run_migrations_sync():
+    """Run Alembic migrations to upgrade the schema to head."""
+    # Locate alembic.ini relative to this module: apps/api/alembic.ini
+    current_dir = os.path.dirname(os.path.abspath(__file__))  # apps/api/app/db
+    api_dir = os.path.dirname(os.path.dirname(current_dir))   # apps/api
+    ini_path = os.path.join(api_dir, "alembic.ini")
+    if not os.path.exists(ini_path):
+        ini_path = os.path.abspath("alembic.ini")
+
+    if not os.path.exists(ini_path):
+        raise FileNotFoundError(f"Cannot locate alembic.ini at {ini_path}")
+
+    alembic_cfg = Config(ini_path)
+    logger.info("Applying Alembic migrations to head using config: %s", ini_path)
+    command.upgrade(alembic_cfg, "head")
+    logger.info("Alembic migrations completed successfully.")
+
+
+async def init_db(force: bool = False):
+    """
+    Ensure the database schema is up to date by executing Alembic migrations.
+    Guaranteed to run once per application process unless forced.
+    """
+    global _db_initialized
+    if _db_initialized and not force:
+        return
+    _db_initialized = True
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, run_migrations_sync)
+
 
 if __name__ == "__main__":
-    asyncio.run(init_db())
+    asyncio.run(init_db(force=True))

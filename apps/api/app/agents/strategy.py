@@ -16,9 +16,24 @@ Return ONLY valid JSON with the following structure:
 }
 """
 
-    async def develop_strategy(self, topic: str, research_data: dict, platform: str = "Shorts") -> StrategyResult:
+    async def develop_strategy(
+        self,
+        topic: str,
+        research_data: dict,
+        platform: str = "Shorts",
+        strategy_dna: dict | None = None,
+    ) -> StrategyResult:
         await log_manager.broadcast(f"Developing content strategy for topic '{topic}' on {platform}...", agent="StrategyAgent")
-        user_prompt = f"Topic: {topic}\nPlatform: {platform}\nResearch Data: {json.dumps(research_data)}"
+        directives = ""
+        if strategy_dna:
+            directives = (
+                f"\nSTRATEGIC BATCH DIRECTIVES (MUST ADHERE TO):\n"
+                f"- Assigned Angle: {strategy_dna.get('angle', 'N/A')}\n"
+                f"- Hook Strategy Framework: {strategy_dna.get('hook_strategy', 'Pattern Interrupt')}\n"
+                f"- Differentiator: {strategy_dna.get('differentiator', 'Unique perspective')}\n"
+                f"- Avoid Overlapping With: {strategy_dna.get('avoid_overlap_with', [])}\n"
+            )
+        user_prompt = f"Topic: {topic}\nPlatform: {platform}\nResearch Data: {json.dumps(research_data)}{directives}"
         raw_res = await self.run(self.SYSTEM_PROMPT, user_prompt, json_mode=True)
         validated = validate_ai_response(raw_res, StrategyResult)
         await log_manager.broadcast(f"Strategy formulated: Angle '{validated.content_angle}', Hook '{validated.hook_strategy}'", agent="StrategyAgent")

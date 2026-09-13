@@ -24,6 +24,7 @@ class ResourceSemaphores:
     tts: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(2))
     ffmpeg: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(2))
     research: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(4))
+    qa: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(2))
 
 
 class ComputeConfig(BaseModel):
@@ -41,6 +42,7 @@ class ComputeConfig(BaseModel):
     tts_concurrency_cap: int = 2
     ffmpeg_concurrency: int = 2
     research_concurrency: int = 4
+    qa_concurrency: int = 2
     llm: ProviderConfig = ProviderConfig(provider="ollama", model="llama3:latest", device="cpu")
     image: ProviderConfig = ProviderConfig(provider="mock", model="placeholder", device="cpu")
     tts: ProviderConfig = ProviderConfig(provider="mock", model="silent", device="cpu")
@@ -57,6 +59,7 @@ class ComputeConfig(BaseModel):
             tts=asyncio.Semaphore(self.tts_concurrency_cap),
             ffmpeg=asyncio.Semaphore(self.ffmpeg_concurrency),
             research=asyncio.Semaphore(self.research_concurrency),
+            qa=asyncio.Semaphore(self.qa_concurrency),
         )
 
     class Config:

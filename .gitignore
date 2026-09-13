@@ -15,8 +15,9 @@ ENV/
 *.sqlite3
 
 # Test scripts & output files
-test_*.py
+/test_*.py
 apps/api/test_*.py
+!apps/api/app/tests/**/*.py
 *.log
 *.jpg
 *.png

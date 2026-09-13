@@ -15,6 +15,7 @@ class WorkflowContext:
     platform: str = "Shorts"
     pipeline_run_id: Optional[uuid.UUID] = None
     model_overrides: Dict[str, str] = field(default_factory=dict)
+    strategy_dna: Dict[str, Any] = field(default_factory=dict)
     
     # Execution outputs
     research: Optional[ResearchResult] = None

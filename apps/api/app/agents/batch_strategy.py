@@ -8,8 +8,11 @@ import json
 class BatchVariation(BaseModel):
     title: str = Field(..., description="Distinct video title")
     angle: str = Field(..., description="Creative angle (e.g. Explainer, Contrarian, Case Study, Top 5)")
+    hook_strategy: str = Field(default="Pattern Interrupt", description="Hook angle framework")
     target_audience: str = Field(default="General Tech Enthusiasts")
     format_style: str = Field(default="Fast-paced Short")
+    differentiator: str = Field(default="Unique perspective", description="How this video differs from other batch items")
+    avoid_overlap_with: List[str] = Field(default_factory=list, description="Aspects covered by other videos to avoid repeating")
 
 class BatchStrategyResult(BaseModel):
     topic: str
@@ -20,6 +23,7 @@ class BatchStrategyAgent(BaseAgent):
 You are an expert Content Strategy Director.
 Given a topic and requested count, generate distinct, highly strategic creative angles for a video batch.
 Do NOT just generate 'Variation 1', 'Variation 2'.
+Ensure every video has a clear differentiator and explicit topics to avoid overlapping with other items in the batch.
 Instead, use unique angles such as:
 - Beginner Explainer
 - Contrarian Hot Take
@@ -36,8 +40,11 @@ Return ONLY valid JSON with this format:
         {
             "title": "Title for video 1",
             "angle": "Contrarian Hot Take",
+            "hook_strategy": "Pattern Interrupt",
             "target_audience": "Software Developers",
-            "format_style": "High-energy pattern interrupt"
+            "format_style": "High-energy pattern interrupt",
+            "differentiator": "Focuses on hidden costs rather than speed",
+            "avoid_overlap_with": ["General setup guide", "Top 5 tools list"]
         }
     ]
 }

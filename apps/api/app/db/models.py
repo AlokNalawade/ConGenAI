@@ -54,6 +54,7 @@ class Content(Base):
     target_duration = Column(Integer)
     status = Column(String)
     quality_score = Column(Float)
+    metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     idea = relationship("ContentIdea", back_populates="contents")
@@ -63,7 +64,7 @@ class Content(Base):
     scripts = relationship("Script", back_populates="content")
     scenes = relationship("Scene", back_populates="content")
     assets = relationship("Asset", back_populates="content")
-    pipeline_runs = relationship("PipelineRun", back_populates="content")
+    pipeline_runs = relationship("PipelineRun", back_populates="content", foreign_keys="[PipelineRun.content_id]")
     jobs = relationship("PipelineJobDB", back_populates="content")
 
 class PipelineJobDB(Base):
@@ -91,6 +92,10 @@ class PipelineRun(Base):
     __tablename__ = "pipeline_runs"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
+    parent_run_id = Column(UUID(as_uuid=True), ForeignKey("pipeline_runs.id"), nullable=True)
+    is_current = Column(Integer, default=1)
+    run_type = Column(String, default="initial")
+    reason = Column(String, nullable=True)
     status = Column(String, default="running")
     current_stage = Column(String, default="NEW")
     started_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -99,7 +104,7 @@ class PipelineRun(Base):
     model_overrides = Column(JSON, nullable=True)
     input_hash = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    content = relationship("Content", back_populates="pipeline_runs")
+    content = relationship("Content", back_populates="pipeline_runs", foreign_keys=[content_id])
 
 class Research(Base):
     __tablename__ = "research"

@@ -19,13 +19,24 @@ from sqlalchemy import update, func
 from sqlalchemy.future import select
 
 from app.core.config import settings
-from app.core.compute_config import compute_config
+from app.core.compute_config import compute_config, ResourceSemaphores
 from app.core.logging import log_manager
 from app.db.database import AsyncSessionLocal
 from app.db.models import PipelineJobDB, PipelineRun as DBPipelineRun, Content as DBContent
 from app.workflows.content_pipeline import ContentPipeline
 
 logger = logging.getLogger(__name__)
+
+# --- Worker-level shared resource semaphores ---
+_worker_semaphores: Optional[ResourceSemaphores] = None
+
+
+def get_worker_semaphores() -> ResourceSemaphores:
+    """Return process-level singleton resource semaphores for this worker."""
+    global _worker_semaphores
+    if _worker_semaphores is None:
+        _worker_semaphores = compute_config.create_semaphores()
+    return _worker_semaphores
 
 # --- Redis connection ---
 
@@ -176,7 +187,7 @@ async def execute_pipeline_job(
 
     try:
         async with AsyncSessionLocal() as db:
-            pipeline = ContentPipeline()
+            pipeline = ContentPipeline(semaphores=get_worker_semaphores())
             context = await pipeline.run(
                 content_id=uuid.UUID(content_id),
                 db=db,
