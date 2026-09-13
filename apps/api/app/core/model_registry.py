@@ -45,3 +45,22 @@ class ModelRegistry:
             "wan-2.2": ModelSpec("wan-2.2", "comfyui", "video", 28.0),
             "kokoro-v1.0": ModelSpec("kokoro-v1.0", "kokoro", "audio", 4.0),
         })
+
+    @classmethod
+    def for_mac(cls) -> "ModelRegistry":
+        return cls({
+            "llama3.2:1b": ModelSpec("llama3.2:1b", "ollama", "text", 1.5),
+            "llama3.2:3b": ModelSpec("llama3.2:3b", "ollama", "text", 2.5),
+            "llama3:latest": ModelSpec("llama3:latest", "ollama", "text", 4.5),
+            "qwen2.5:1.5b": ModelSpec("qwen2.5:1.5b", "ollama", "text", 1.5),
+            "qwen2.5:7b": ModelSpec("qwen2.5:7b", "ollama", "text", 4.5),
+            "mock-image": ModelSpec("mock-image", "mock", "image", 0.0),
+            "mock-video": ModelSpec("mock-video", "mock", "video", 0.0),
+            "mock-audio": ModelSpec("mock-audio", "mock", "audio", 0.0),
+        })
+
+    @classmethod
+    def for_profile(cls, profile: str = "5090") -> "ModelRegistry":
+        if profile.lower() in ("mac", "apple", "cpu"):
+            return cls.for_mac()
+        return cls.for_5090()

@@ -1,31 +1,22 @@
 import asyncio
 import logging
+import os
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Dict, Optional, Protocol
+from typing import AsyncIterator, Dict, List, Optional
 
 from app.core.model_registry import ModelRegistry, ModelSpec
+from app.core.model_providers import (
+    ModelProvider,
+    NoopProvider,
+    OllamaModelProvider,
+    ComfyUIModelProvider,
+    TorchModelProvider,
+    MockTrackingProvider,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class ModelProvider(Protocol):
-    async def load(self, spec: ModelSpec) -> None: ...
-    async def unload(self, spec: ModelSpec) -> None: ...
-    async def is_loaded(self, spec: ModelSpec) -> bool: ...
-
-
-class NoopProvider:
-    """Safe provider used until a concrete runtime adapter is configured."""
-
-    async def load(self, spec: ModelSpec) -> None:
-        logger.info("Model load requested: %s (%s)", spec.name, spec.provider)
-
-    async def unload(self, spec: ModelSpec) -> None:
-        logger.info("Model unload requested: %s (%s)", spec.name, spec.provider)
-
-    async def is_loaded(self, spec: ModelSpec) -> bool:
-        return False
 
 
 @dataclass
@@ -64,6 +55,16 @@ class VRAMManager:
         return self._reserved_gb
 
 
+def _default_providers() -> Dict[str, ModelProvider]:
+    return {
+        "ollama": OllamaModelProvider(),
+        "comfyui": ComfyUIModelProvider(),
+        "torch": TorchModelProvider(),
+        "kokoro": TorchModelProvider(),
+        "mock": NoopProvider(),
+    }
+
+
 class ModelManager:
     """Coordinates model residency on a single GPU.
 
@@ -81,7 +82,7 @@ class ModelManager:
     ):
         self.registry = registry or ModelRegistry.for_5090()
         self.vram = vram or VRAMManager()
-        self.providers = providers or {}
+        self.providers = providers if providers is not None else _default_providers()
         self._resident: Dict[str, Residency] = {}
         self._lock = asyncio.Lock()
 
@@ -143,6 +144,19 @@ class ModelManager:
                 await self._release_unlocked(model)
             return candidates
 
+    @asynccontextmanager
+    async def session(self, model: str) -> AsyncIterator[ModelSpec]:
+        """
+        Context manager ensuring the model is resident in VRAM during execution,
+        and automatically released when exiting if configured with unload_after_use=True.
+        """
+        spec = await self.ensure_loaded(model)
+        try:
+            yield spec
+        finally:
+            if spec.unload_after_use:
+                await self.release(model)
+
     def resident_models(self) -> list[str]:
         return list(self._resident.keys())
 
@@ -153,4 +167,39 @@ class ModelManager:
             "reserved_gb": self.vram.reserved_gb,
             "available_gb": self.vram.available_gb,
             "resident_models": self.resident_models(),
+            "hardware_cuda": self.get_hardware_cuda_vram(),
         }
+
+    @staticmethod
+    def get_hardware_cuda_vram() -> Optional[dict]:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                free_bytes, total_bytes = torch.cuda.mem_get_info()
+                return {
+                    "free_gb": round(free_bytes / (1024**3), 2),
+                    "total_gb": round(total_bytes / (1024**3), 2),
+                    "allocated_gb": round(torch.cuda.memory_allocated() / (1024**3), 2),
+                }
+        except Exception:
+            pass
+        return None
+
+    @classmethod
+    def for_profile(
+        cls,
+        profile: str = "5090",
+        providers: Optional[Dict[str, ModelProvider]] = None
+    ) -> "ModelManager":
+        """Factory creating a ModelManager configured for the designated compute profile."""
+        if profile.lower() in ("mac", "apple", "cpu"):
+            return cls(
+                registry=ModelRegistry.for_mac(),
+                vram=VRAMManager(capacity_gb=12.0, safety_margin_gb=1.0),
+                providers=providers,
+            )
+        return cls(
+            registry=ModelRegistry.for_5090(),
+            vram=VRAMManager(capacity_gb=32.0, safety_margin_gb=2.0),
+            providers=providers,
+        )
