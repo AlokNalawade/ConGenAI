@@ -56,6 +56,16 @@ class VRAMManager:
 
 
 def _default_providers() -> Dict[str, ModelProvider]:
+    is_testing = os.getenv("TESTING", "").lower() in ("true", "1", "yes")
+    if is_testing:
+        mock = MockTrackingProvider()
+        return {
+            "ollama": mock,
+            "comfyui": mock,
+            "torch": mock,
+            "kokoro": mock,
+            "mock": mock,
+        }
     return {
         "ollama": OllamaModelProvider(),
         "comfyui": ComfyUIModelProvider(),

@@ -39,12 +39,20 @@ from app.quality.evaluator import QualityAgent
 from app.core.logging import log_manager
 from app.core.agent_tracker import AgentTracker
 from app.core.compute_config import compute_config
+from app.core.model_manager import ModelManager
+from app.core.model_router import ModelRouter
 
 logger = logging.getLogger(__name__)
 
 class ContentPipeline:
-    def __init__(self):
+    def __init__(
+        self,
+        model_manager: Optional[ModelManager] = None,
+        model_router: Optional[ModelRouter] = None,
+    ):
         self.quality_agent = QualityAgent()
+        self.model_manager = model_manager or ModelManager.for_profile(compute_config.profile)
+        self.model_router = model_router or ModelRouter.for_profile(compute_config.profile)
 
     async def hydrate_context(self, ctx: WorkflowContext, db: AsyncSession):
         """
@@ -396,6 +404,11 @@ class ContentPipeline:
                 f"❌ Pipeline failed: {str(e)}",
                 agent="ContentPipeline"
             )
+        finally:
+            try:
+                await self.model_manager.release_idle()
+            except Exception as ex:
+                logger.warning(f"Error releasing idle models after pipeline run: {ex}")
 
         return ctx
 
@@ -404,7 +417,8 @@ class ContentPipeline:
         await update_workflow_state(db, ctx.content_id, WorkflowState.RESEARCH)
         ctx.current_state = WorkflowState.RESEARCH
         
-        research_model = ctx.model_overrides.get("research", compute_config.llm.model)
+        research_model = self.model_router.route("research", ctx.model_overrides)
+        await self.model_manager.ensure_loaded(research_model)
         agent = ResearchAgent(model=research_model)
         
         async with AgentTracker(db, ctx.content_id, "RESEARCH", "ResearchAgent", provider=compute_config.llm.provider, model=research_model, pipeline_run_id=ctx.pipeline_run_id):
@@ -435,7 +449,8 @@ class ContentPipeline:
         await update_workflow_state(db, ctx.content_id, WorkflowState.STRATEGY)
         ctx.current_state = WorkflowState.STRATEGY
 
-        strategy_model = ctx.model_overrides.get("strategy", compute_config.llm.model)
+        strategy_model = self.model_router.route("strategy", ctx.model_overrides)
+        await self.model_manager.ensure_loaded(strategy_model)
         agent = StrategyAgent(model=strategy_model)
 
         research_dict = ctx.research.model_dump() if ctx.research else {}
@@ -464,7 +479,8 @@ class ContentPipeline:
         await update_workflow_state(db, ctx.content_id, WorkflowState.SCRIPT)
         ctx.current_state = WorkflowState.SCRIPT
         
-        script_model = ctx.model_overrides.get("script", compute_config.llm.model)
+        script_model = self.model_router.route("script", ctx.model_overrides)
+        await self.model_manager.ensure_loaded(script_model)
         agent = ScriptAgent(model=script_model)
         
         research_dict = ctx.research.model_dump() if ctx.research else {}
@@ -491,7 +507,8 @@ class ContentPipeline:
         await update_workflow_state(db, ctx.content_id, WorkflowState.SCENES)
         ctx.current_state = WorkflowState.SCENES
         
-        scene_model = ctx.model_overrides.get("scene", compute_config.llm.model)
+        scene_model = self.model_router.route("scene", ctx.model_overrides)
+        await self.model_manager.ensure_loaded(scene_model)
         agent = SceneAgent(model=scene_model)
         
         script_dict = ctx.script.model_dump() if ctx.script else {}
@@ -523,6 +540,11 @@ class ContentPipeline:
     async def _run_media_step(self, ctx: WorkflowContext, db: AsyncSession):
         await update_workflow_state(db, ctx.content_id, WorkflowState.ASSETS)
         ctx.current_state = WorkflowState.ASSETS
+
+        image_model = self.model_router.route("image", ctx.model_overrides)
+        await self.model_manager.ensure_loaded(image_model)
+        voice_model = self.model_router.route("voice", ctx.model_overrides)
+        await self.model_manager.ensure_loaded(voice_model)
 
         result = await db.execute(
             select(DBScene).filter(DBScene.content_id == ctx.content_id).order_by(DBScene.scene_number)
@@ -648,6 +670,9 @@ class ContentPipeline:
         await update_workflow_state(db, ctx.content_id, WorkflowState.RENDER)
         ctx.current_state = WorkflowState.RENDER
         
+        video_model = self.model_router.route("video", ctx.model_overrides)
+        await self.model_manager.ensure_loaded(video_model)
+
         video_agent = VideoAgent()
         scene_video_paths = []
 

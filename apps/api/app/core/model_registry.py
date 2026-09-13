@@ -37,13 +37,13 @@ class ModelRegistry:
     @classmethod
     def for_5090(cls) -> "ModelRegistry":
         return cls({
-            "qwen2.5:14b": ModelSpec("qwen2.5:14b", "ollama", "text", 10.0),
-            "qwen3:35b": ModelSpec("qwen3:35b", "ollama", "text", 24.0),
-            "deepseek-r1": ModelSpec("deepseek-r1", "ollama", "text", 24.0),
-            "flux": ModelSpec("flux", "comfyui", "image", 18.0),
-            "ltx-2.3": ModelSpec("ltx-2.3", "comfyui", "video", 24.0),
-            "wan-2.2": ModelSpec("wan-2.2", "comfyui", "video", 28.0),
-            "kokoro-v1.0": ModelSpec("kokoro-v1.0", "kokoro", "audio", 4.0),
+            "qwen2.5:14b": ModelSpec("qwen2.5:14b", "ollama", "text", 10.0, unload_after_use=False),
+            "qwen3:35b": ModelSpec("qwen3:35b", "ollama", "text", 24.0, unload_after_use=False),
+            "deepseek-r1": ModelSpec("deepseek-r1", "ollama", "text", 24.0, unload_after_use=False),
+            "flux": ModelSpec("flux", "comfyui", "image", 18.0, unload_after_use=False),
+            "ltx-2.3": ModelSpec("ltx-2.3", "comfyui", "video", 24.0, unload_after_use=True),
+            "wan-2.2": ModelSpec("wan-2.2", "comfyui", "video", 28.0, unload_after_use=True),
+            "kokoro-v1.0": ModelSpec("kokoro-v1.0", "kokoro", "audio", 4.0, unload_after_use=True),
         })
 
     @classmethod
