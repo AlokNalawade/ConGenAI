@@ -71,7 +71,7 @@ class PipelineJobDB(Base):
     __tablename__ = "pipeline_jobs"
     __table_args__ = (
         Index('ix_job_content_idempotency', 'content_id', 'idempotency_key', unique=True, postgresql_where="idempotency_key IS NOT NULL"),
-        Index('ix_one_active_job_per_content', 'content_id', unique=True, postgresql_where="status IN ('queued', 'running', 'resuming')"),
+        Index('ix_one_active_job_per_content', 'content_id', unique=True, postgresql_where="status IN ('queued', 'dispatching', 'running', 'resuming')"),
     )
     id = Column(String, primary_key=True)
     content_id = Column(UUID(as_uuid=True), ForeignKey("content.id"))
@@ -218,7 +218,7 @@ class Asset(Base):
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     content = relationship("Content", back_populates="assets")
-    scene = relationship("Scene", back_populates="scene") if False else relationship("Scene", back_populates="assets")
+    scene = relationship("Scene", back_populates="assets")
 
 class AgentRun(Base):
     __tablename__ = "agent_runs"

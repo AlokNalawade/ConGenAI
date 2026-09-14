@@ -24,6 +24,7 @@ from app.core.logging import log_manager
 from app.db.database import AsyncSessionLocal
 from app.db.models import PipelineJobDB, PipelineRun as DBPipelineRun, Content as DBContent
 from app.workflows.content_pipeline import ContentPipeline
+from app.workflows.workflow_state import WorkflowState
 
 logger = logging.getLogger(__name__)
 
@@ -167,11 +168,14 @@ async def execute_pipeline_job(
             await db.commit()
             return
 
-    # Mark job as running + set started_at
+    # Mark job as running + set started_at (atomic claim prevents duplicate execution)
     async with AsyncSessionLocal() as db:
-        await db.execute(
+        claim_res = await db.execute(
             update(PipelineJobDB)
-            .where(PipelineJobDB.id == job_id)
+            .where(
+                PipelineJobDB.id == job_id,
+                PipelineJobDB.status.in_(["queued", "dispatching", "resuming"]),
+            )
             .values(
                 status="running",
                 started_at=func.now(),
@@ -179,6 +183,11 @@ async def execute_pipeline_job(
             )
         )
         await db.commit()
+        if claim_res.rowcount == 0:
+            logger.warning(
+                f"[Worker] Skipping job {job_id}: already running or claimed by another worker. Averting duplicate execution."
+            )
+            return
 
     # Start heartbeat loop
     heartbeat_task = asyncio.create_task(
@@ -315,28 +324,27 @@ async def recover_stale_jobs():
 async def recover_queued_jobs():
     """
     Find jobs in QUEUED state that were never dispatched to Redis (e.g. Redis was
-    down when the API accepted the request) and enqueue them now.
+    down when the API accepted the request) and atomically claim them ('queued' -> 'dispatching')
+    before enqueueing to Redis.
 
-    This is the recovery path for the no-asyncio-fallback architecture:
-      API receives request → job inserted as QUEUED → Redis unavailable → 202 returned
-      Worker starts (Redis now available) → recover_queued_jobs() → enqueue → execute
-
-    Called on worker startup, after recover_stale_jobs().
+    This prevents duplicate dispatches if multiple workers or recovery loops run simultaneously.
     """
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(PipelineJobDB).filter(
-                PipelineJobDB.status == "queued",
-            )
+            update(PipelineJobDB)
+            .where(PipelineJobDB.status == "queued")
+            .values(status="dispatching")
+            .returning(PipelineJobDB)
         )
-        queued_jobs = result.scalars().all()
+        claimed_jobs = result.scalars().all()
+        await db.commit()
 
-    if not queued_jobs:
+    if not claimed_jobs:
         logger.info("No QUEUED jobs found on startup.")
         return
 
-    logger.info(f"Found {len(queued_jobs)} QUEUED jobs — dispatching to Redis...")
-    for job in queued_jobs:
+    logger.info(f"Atomically claimed {len(claimed_jobs)} QUEUED jobs — dispatching to Redis...")
+    for job in claimed_jobs:
         try:
             await enqueue_pipeline_job(
                 job_id=job.id,
@@ -345,9 +353,17 @@ async def recover_queued_jobs():
                 model_overrides=job.model_overrides or {},
                 resume=bool(job.resume),
             )
-            logger.info(f"Dispatched queued job {job.id} to Redis")
+            logger.info(f"Dispatched claimed job {job.id} to Redis")
         except Exception as e:
-            logger.error(f"Failed to dispatch queued job {job.id}: {e}")
+            logger.error(f"Failed to dispatch claimed job {job.id}: {e}")
+            # Revert to queued so next recovery cycle can pick it up
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(PipelineJobDB)
+                    .where(PipelineJobDB.id == job.id, PipelineJobDB.status == "dispatching")
+                    .values(status="queued")
+                )
+                await db.commit()
 
 
 # --- Startup hook ---

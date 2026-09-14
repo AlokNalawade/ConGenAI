@@ -386,6 +386,6 @@ async def test_alembic_migrations_up_to_date():
     script = ScriptDirectory.from_config(alembic_cfg)
     head_rev = script.get_current_head()
     assert head_rev is not None
-    assert head_rev == "c5a1a628620f"
+    assert head_rev == "5a33285fa474"
 
 

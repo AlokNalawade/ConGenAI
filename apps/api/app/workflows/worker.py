@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from sqlalchemy.future import select
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
@@ -184,23 +185,46 @@ class JobManager:
                     return active
                 raise
 
-        # Enqueue to Redis queue unless testing or enqueue=False
+        # Atomically claim for dispatch and enqueue to Redis unless testing or enqueue=False
         if enqueue and os.getenv("TESTING", "false").lower() not in ("true", "1"):
-            try:
-                from app.workflows.task_queue import enqueue_pipeline_job
-
-                await enqueue_pipeline_job(
-                    job_id=job.job_id,
-                    content_id=job.content_id,
-                    pipeline_run_id=job.pipeline_run_id,
-                    model_overrides=job.model_overrides,
-                    resume=job.resume,
+            claimed = False
+            async with AsyncSessionLocal() as db:
+                claim_res = await db.execute(
+                    update(PipelineJobDB)
+                    .where(
+                        PipelineJobDB.id == job.job_id,
+                        PipelineJobDB.status == "queued"
+                    )
+                    .values(status="dispatching")
                 )
-            except Exception as e:
-                logger.warning(f"Redis enqueue failed for job {job.job_id}: {e}")
-                # Job is persisted in DB — stale recovery will pick it up
-                if not compute_config.allow_ephemeral_jobs:
-                    raise
+                await db.commit()
+                if claim_res.rowcount > 0:
+                    claimed = True
+                    job.status = "dispatching"
+
+            if claimed:
+                try:
+                    from app.workflows.task_queue import enqueue_pipeline_job
+
+                    await enqueue_pipeline_job(
+                        job_id=job.job_id,
+                        content_id=job.content_id,
+                        pipeline_run_id=job.pipeline_run_id,
+                        model_overrides=job.model_overrides,
+                        resume=job.resume,
+                    )
+                except Exception as e:
+                    logger.warning(f"Redis enqueue failed for job {job.job_id}: {e}")
+                    # Revert to queued so recovery loop can retry when Redis comes back
+                    async with AsyncSessionLocal() as db:
+                        await db.execute(
+                            update(PipelineJobDB)
+                            .where(PipelineJobDB.id == job.job_id, PipelineJobDB.status == "dispatching")
+                            .values(status="queued")
+                        )
+                        await db.commit()
+                    if not compute_config.allow_ephemeral_jobs:
+                        raise
 
         return job
 
@@ -243,7 +267,7 @@ class JobManager:
                 select(PipelineJobDB)
                 .filter(
                     PipelineJobDB.content_id == uuid.UUID(str(content_id)),
-                    PipelineJobDB.status.in_(["queued", "running"]),
+                    PipelineJobDB.status.in_(["queued", "dispatching", "running", "resuming"]),
                 )
                 .order_by(PipelineJobDB.created_at.desc())
             )
