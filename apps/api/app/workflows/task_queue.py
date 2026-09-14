@@ -194,7 +194,12 @@ async def execute_pipeline_job(
                 model_overrides=model_overrides,
                 resume=resume,
                 pipeline_run_id=uuid.UUID(pipeline_run_id),
+                raise_on_failure=True,
             )
+
+        if context.current_state == WorkflowState.FAILED or (context.errors and any("PIPELINE" in str(e) for e in context.errors)):
+            err_msg = "; ".join(context.errors) if context.errors else "Pipeline run marked as failed"
+            raise RuntimeError(f"Pipeline job execution failed: {err_msg}")
 
         # Mark job completed
         async with AsyncSessionLocal() as db:

@@ -28,7 +28,8 @@ class VideoService:
                     os.makedirs(ass_dir, exist_ok=True)
                     ass_path = os.path.join(ass_dir, f"sub_{uuid.uuid4().hex[:8]}.ass")
                     scene_dur = float(duration) if duration and float(duration) > 0 else 5.0
-                    SubtitleService.generate_ass_subtitle(text, scene_dur, ass_path)
+                    from app.services.kinetic_subtitle_service import KineticSubtitleService
+                    KineticSubtitleService.generate_kinetic_ass(text, scene_dur, ass_path)
                     if os.path.exists(ass_path):
                         escaped_ass = os.path.abspath(ass_path).replace(":", "\\:").replace("'", "\\'")
                         vf_filters.append(f"subtitles='{escaped_ass}'")

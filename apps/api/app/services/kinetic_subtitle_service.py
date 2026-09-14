@@ -93,38 +93,54 @@ Style: Default,Inter-Bold,52,{main_color},&H00000000,&H00000000,&H90000000,1,0,0
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+        # Group words into 2-4 word rhythmic bursts (target 3 words per burst)
+        burst_size = 3
+        chunks = []
+        for i in range(0, len(words), burst_size):
+            chunks.append(words[i : i + burst_size])
+        if len(chunks) > 1 and len(chunks[-1]) == 1:
+            chunks[-2].extend(chunks.pop())
+
+        def fmt_time(seconds: float) -> str:
+            hrs = int(seconds // 3600)
+            mins = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            cs = int((seconds - int(seconds)) * 100)
+            return f"{hrs:01d}:{mins:02d}:{secs:02d}.{cs:02d}"
+
         lines = []
-        for i, word in enumerate(words):
-            start = i * time_per_word
-            end = min(duration, (i + 1) * time_per_word)
-            
-            def fmt_time(seconds: float) -> str:
-                hrs = int(seconds // 3600)
-                mins = int((seconds % 3600) // 60)
-                secs = int(seconds % 60)
-                cs = int((seconds - int(seconds)) * 100)
-                return f"{hrs:01d}:{mins:02d}:{secs:02d}.{cs:02d}"
+        word_global_index = 0
+        for chunk in chunks:
+            for j, word in enumerate(chunk):
+                start = word_global_index * time_per_word
+                end = min(duration, (word_global_index + 1) * time_per_word)
 
-            # Check for emoji injection
-            emoji = cls.detect_keyword_emoji(word)
-            if emoji:
-                injected_emoji_count += 1
-                display_word = f"{emoji} {word}"
-                # Add sound effect cue if mapped
-                sfx_name = KEYWORD_SFX_MAP.get(emoji, "pop")
-                sfx_cues.append(
-                    SoundCue(
-                        sfx_name=sfx_name,
-                        timestamp=round(start, 2),
-                        triggered_by_word=word,
+                # Check for emoji injection
+                emoji = cls.detect_keyword_emoji(word)
+                if emoji:
+                    injected_emoji_count += 1
+                    sfx_name = KEYWORD_SFX_MAP.get(emoji, "pop")
+                    sfx_cues.append(
+                        SoundCue(
+                            sfx_name=sfx_name,
+                            timestamp=round(start, 2),
+                            triggered_by_word=word,
+                        )
                     )
-                )
-            else:
-                display_word = word
 
-            word_formatted = f"{{\\c{highlight_color}}}{display_word}{{\\c{main_color}}}"
-            line_text = " ".join([w if idx != i else word_formatted for idx, w in enumerate(words)])
-            lines.append(f"Dialogue: 0,{fmt_time(start)},{fmt_time(end)},Default,,0,0,0,,{line_text}")
+                # Format the 2-4 word rhythmic burst with current word highlighted
+                burst_display = []
+                for k, w in enumerate(chunk):
+                    w_emoji = cls.detect_keyword_emoji(w)
+                    display_w = f"{w_emoji} {w}" if w_emoji else w
+                    if k == j:
+                        burst_display.append(f"{{\\c{highlight_color}}}{display_w}{{\\c{main_color}}}")
+                    else:
+                        burst_display.append(display_w)
+
+                line_text = " ".join(burst_display)
+                lines.append(f"Dialogue: 0,{fmt_time(start)},{fmt_time(end)},Default,,0,0,0,,{line_text}")
+                word_global_index += 1
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(ass_header + "\n".join(lines))

@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Quality Assurance / Video Inspection
     ALLOW_QA_FALLBACK: bool = False
 
+    # Privacy / External Provider Gating
+    ALLOW_EXTERNAL_GENERATION: bool = False
+
     @property
     def REDIS_URL(self) -> str:
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"

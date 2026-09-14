@@ -43,6 +43,15 @@ def test_kinetic_subtitle_emoji_and_sfx_detection():
             assert "💸" in content
             assert "📉" in content
 
+            # Verify rhythmic bursts (2-4 words per dialogue event rather than repeating full sentence)
+            import re
+            dialogue_lines = [l for l in content.splitlines() if l.startswith("Dialogue:")]
+            assert len(dialogue_lines) > 0
+            for dl in dialogue_lines:
+                clean_dl = re.sub(r"\{.*?\}", "", dl.split(",,", 1)[-1])
+                words_in_line = clean_dl.split()
+                assert len(words_in_line) <= 5, f"Expected rhythmic burst, got {len(words_in_line)} words: {clean_dl}"
+
 
 def test_pacing_optimizer_silence_and_zoom_filters():
     """Verify CapCut-style silence removal filter and 3-second attention reset punch-in filter."""

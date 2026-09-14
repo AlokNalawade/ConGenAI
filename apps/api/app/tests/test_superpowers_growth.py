@@ -38,3 +38,34 @@ def test_3way_thumbnail_candidate_generation():
             assert cand_img.size == (1080, 1920)
             assert cand.headline_text == "Why AI Pipelines Crash"
             assert cand.badge_text is not None
+
+
+def test_thumbnail_evidence_integrity_and_platform_resolutions():
+    """Verify evidence integrity (no fabricated 90% FAIL) and YouTube 16:9 resolution support."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base_path = os.path.join(tmpdir, "base_scene.png")
+        base_img = Image.new("RGB", (1280, 720), color=(15, 20, 30))
+        base_img.save(base_path)
+
+        generator = ThumbnailGeneratorService(output_dir=os.path.join(tmpdir, "thumbs"))
+
+        # Case A: No verified stats provided -> should NOT fabricate "90% FAIL"
+        candidates_unverified = generator.generate_3way_thumbnails(
+            base_image_path=base_path,
+            headline="Scaling Postgres to 10k QPS",
+            target_resolution=(1280, 720),
+        )
+        for c in candidates_unverified:
+            assert c.badge_text != "90% FAIL"
+            cand_img = Image.open(c.image_path)
+            assert cand_img.size == (1280, 720)
+
+        # Case B: Verified statistic provided from research -> should accurately display it
+        candidates_verified = generator.generate_3way_thumbnails(
+            base_image_path=base_path,
+            headline="Scaling Postgres to 10k QPS",
+            verified_statistic="73% FASTER WITH INDEX",
+            target_resolution=(1280, 720),
+        )
+        stat_candidate = next(c for c in candidates_verified if c.style == ThumbnailStyle.STATISTIC_PROOF)
+        assert stat_candidate.badge_text == "73% FASTER WITH INDEX"

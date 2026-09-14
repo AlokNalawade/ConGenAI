@@ -26,6 +26,9 @@ class WorkflowContext:
     final_video_path: Optional[str] = None
     final_video_asset_id: Optional[uuid.UUID] = None
     quality_result: Optional[QualityResult] = None
+    thumbnails: List[Dict[str, Any]] = field(default_factory=list)
+    visual_dna_pack: Optional[str] = None
+    broll_assets: Dict[int, str] = field(default_factory=dict)
     
     # Audit & Diagnostics
     logs: List[str] = field(default_factory=list)

@@ -229,7 +229,8 @@ class ContentPipeline:
         db: AsyncSession,
         model_overrides: Optional[Dict[str, str]] = None,
         resume: bool = True,
-        pipeline_run_id: Optional[uuid.UUID] = None
+        pipeline_run_id: Optional[uuid.UUID] = None,
+        raise_on_failure: bool = False,
     ) -> WorkflowContext:
         ctx = WorkflowContext(content_id=content_id, model_overrides=model_overrides or {})
         run_id = pipeline_run_id or uuid.uuid4()
@@ -388,7 +389,7 @@ class ContentPipeline:
             )
             ctx.current_state = WorkflowState.AWAITING_APPROVAL
 
-            # Reset all other runs to is_current=False, mark completed run as current
+            # Mark this run as completed and current
             await db.execute(
                 update(DBPipelineRun)
                 .where(DBPipelineRun.content_id == content_id, DBPipelineRun.id != pipeline_run.id)
@@ -419,6 +420,8 @@ class ContentPipeline:
                 f"❌ Pipeline failed: {str(e)}",
                 agent="ContentPipeline"
             )
+            if raise_on_failure:
+                raise
         finally:
             try:
                 await self.model_manager.release_idle()
@@ -580,7 +583,23 @@ class ContentPipeline:
         image_agent = ImageAgent()
         voice_agent = VoiceAgent()
 
+        from app.services.visual_dna_service import VisualDNAService
+        from app.services.broll_service import BRollService
+        from app.services.auto_reframe import AutoReframeService
+
+        broll_service = BRollService()
+        style_pack_name = ctx.strategy_dna.get("visual_style_pack") or "dark_tech_cyberpunk"
+
         async def _process_scene_assets(scene_num: int, scene_db_id: uuid.UUID, prompt: str, narration: str, scene_dur: float):
+            # Check B-roll anti-repetition matching
+            should_broll, broll_clip = broll_service.should_use_broll(prompt)
+            if should_broll and broll_clip:
+                ctx.broll_assets[scene_num] = broll_clip.id
+
+            # Enhance visual prompt with Visual DNA consistent styling
+            dna_result = VisualDNAService.decorate_prompt(prompt, style_pack_name=style_pack_name)
+            enhanced_prompt = dna_result.get("positive_prompt", prompt)
+
             # Check existing image asset
             existing_img = next((a for a in existing_assets if a.scene_id == scene_db_id and a.asset_type == "image" and os.path.exists(a.path) and os.path.getsize(a.path) > 100), None)
             if existing_img:
@@ -588,7 +607,13 @@ class ContentPipeline:
             else:
                 async with self.semaphores.image_gpu:
                     async with AgentTracker(db, ctx.content_id, "ASSETS_IMAGE", "ImageAgent", provider=compute_config.image.provider, model=compute_config.image.model, pipeline_run_id=ctx.pipeline_run_id):
-                        img_path = await image_agent.generate_image(prompt=prompt)
+                        img_path = await image_agent.generate_image(prompt=enhanced_prompt)
+                        # Ensure vertical saliency framing
+                        if img_path and os.path.exists(img_path):
+                            try:
+                                AutoReframeService.reframe_image(img_path, img_path, target_resolution=(1080, 1920))
+                            except Exception:
+                                pass
             
             # Check existing audio asset
             existing_aud = next((a for a in existing_assets if a.scene_id == scene_db_id and a.asset_type == "audio" and os.path.exists(a.path) and os.path.getsize(a.path) > 100), None)
@@ -731,6 +756,54 @@ class ContentPipeline:
         await db.commit()
         await db.refresh(final_asset)
         ctx.final_video_asset_id = final_asset.id
+
+        # Generate 3-way platform-aware thumbnail candidates using verified evidence
+        try:
+            from app.services.thumbnail_generator import ThumbnailGeneratorService
+            thumb_gen = ThumbnailGeneratorService()
+            first_scene_img = None
+            for sc_n in sorted_scenes:
+                candidate_img = ctx.scene_assets.get(sc_n, {}).get("image_path")
+                if candidate_img and os.path.exists(candidate_img):
+                    first_scene_img = candidate_img
+                    break
+
+            if first_scene_img:
+                verified_stat = None
+                if ctx.research and ctx.research.key_findings:
+                    for finding in ctx.research.key_findings:
+                        if any(c.isdigit() for c in finding) and len(finding) < 40:
+                            verified_stat = finding
+                            break
+                elif ctx.strategy and getattr(ctx.strategy, "hook", None):
+                    hook = ctx.strategy.hook
+                    if any(c.isdigit() for c in hook) and len(hook) < 30:
+                        verified_stat = hook
+
+                target_res = (1280, 720) if ctx.platform and ctx.platform.lower() == "youtube" else (1080, 1920)
+                candidates = thumb_gen.generate_3way_thumbnails(
+                    base_image_path=first_scene_img,
+                    headline=ctx.title,
+                    verified_statistic=verified_stat,
+                    target_resolution=target_res,
+                )
+                ctx.thumbnails = [c.model_dump() for c in candidates]
+                if candidates:
+                    thumb_asset = DBAsset(
+                        content_id=ctx.content_id,
+                        pipeline_run_id=ctx.pipeline_run_id,
+                        asset_type="thumbnail",
+                        path=candidates[0].image_path,
+                        filename=os.path.basename(candidates[0].image_path),
+                        mime_type="image/jpeg",
+                        provider="pillow-generator",
+                        model="vidiq-3way",
+                        status="completed",
+                    )
+                    db.add(thumb_asset)
+                    await db.commit()
+        except Exception as thumb_err:
+            logger.warning(f"Thumbnail generation warning in pipeline: {thumb_err}")
 
     async def _run_quality_step(self, ctx: WorkflowContext, db: AsyncSession):
         await update_workflow_state(db, ctx.content_id, WorkflowState.QUALITY_CHECK)

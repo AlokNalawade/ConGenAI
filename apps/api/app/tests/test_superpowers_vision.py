@@ -78,3 +78,30 @@ def test_visual_dna_style_packs_and_locks():
     assert "cartoon" in decorated["negative_prompt"]
     assert "extra fingers" in decorated["negative_prompt"]
     assert decorated["seed"] == 1337
+
+
+def test_broll_anti_repetition_and_usage_tracking():
+    """Verify that BRollService penalizes recently and frequently used clips to prevent repetition."""
+    BRollService.reset_usage()
+    service = BRollService()
+
+    # First match should have full relevance score
+    clip1 = service.match_broll("datacenter cloud server infrastructure")
+    assert clip1 is not None
+    assert clip1.id == "broll_server_01"
+    initial_score = clip1.relevance_score
+    assert initial_score > 0.5
+
+    # Simulate using it in a scene
+    service.record_usage(clip1.id)
+
+    # Immediately matching again should be penalized due to recency
+    clip2 = service.match_broll("datacenter cloud server infrastructure")
+    assert clip2 is not None
+    assert clip2.relevance_score < initial_score
+
+    # Repeated usage should further penalize score
+    for _ in range(5):
+        service.record_usage("broll_server_01")
+    clip3 = service.match_broll("datacenter cloud server infrastructure")
+    assert clip3.relevance_score < 0.3

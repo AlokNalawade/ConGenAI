@@ -59,40 +59,43 @@ class ThumbnailGeneratorService:
         style: ThumbnailStyle,
         headline: str,
         badge: Optional[str] = None,
+        target_resolution: tuple[int, int] = (1080, 1920),
     ) -> str:
-        """Render an individual thumbnail candidate on canvas."""
-        canvas = base_img.copy().resize((1080, 1920), Image.Resampling.LANCZOS)
+        """Render an individual thumbnail candidate on canvas at specified platform resolution."""
+        w, h = target_resolution
+        canvas = base_img.copy().resize((w, h), Image.Resampling.LANCZOS)
         draw = ImageDraw.Draw(canvas)
 
         # Style 1: Curiosity Hook (Yellow High Contrast)
         if style == ThumbnailStyle.CURIOSITY_HOOK:
-            # Top banner box
-            draw.rectangle([0, 100, 1080, 420], fill=(0, 0, 0, 200))
-            self._draw_stroke_text(draw, (80, 160), headline[:35].upper(), fill=(255, 230, 0), stroke_fill=(0, 0, 0), stroke_width=6)
+            b_top = int(h * 0.05)
+            b_bottom = int(h * 0.22)
+            draw.rectangle([0, b_top, w, b_bottom], fill=(0, 0, 0, 200))
+            self._draw_stroke_text(draw, (int(w * 0.07), b_top + int(h * 0.03)), headline[:35].upper(), fill=(255, 230, 0), stroke_fill=(0, 0, 0), stroke_width=6)
             if badge:
-                # Pill badge
-                draw.rounded_rectangle([80, 320, 360, 390], radius=15, fill=(255, 59, 48))
-                draw.text((100, 340), badge.upper(), fill=(255, 255, 255))
+                draw.rounded_rectangle([int(w * 0.07), b_bottom - int(h * 0.05), int(w * 0.45), b_bottom - int(h * 0.01)], radius=15, fill=(255, 59, 48))
+                draw.text((int(w * 0.09), b_bottom - int(h * 0.04)), badge.upper(), fill=(255, 255, 255))
 
         # Style 2: Warning Alert (Red & White Danger Pill)
         elif style == ThumbnailStyle.WARNING_ALERT:
-            # Pill badge at top
-            draw.rounded_rectangle([80, 120, 420, 200], radius=20, fill=(255, 59, 48))
-            draw.text((110, 145), badge or "⚠️ CRITICAL WARNING", fill=(255, 255, 255))
+            badge_text = badge or "⚠️ CRITICAL ALERT"
+            draw.rounded_rectangle([int(w * 0.07), int(h * 0.06), int(w * 0.55), int(h * 0.11)], radius=20, fill=(255, 59, 48))
+            draw.text((int(w * 0.10), int(h * 0.075)), badge_text, fill=(255, 255, 255))
             # Dark backing banner
-            draw.rectangle([0, 240, 1080, 520], fill=(15, 23, 42, 220))
-            self._draw_stroke_text(draw, (80, 290), headline[:40].upper(), fill=(255, 255, 255), stroke_fill=(0, 0, 0), stroke_width=6)
+            draw.rectangle([0, int(h * 0.12), w, int(h * 0.28)], fill=(15, 23, 42, 220))
+            self._draw_stroke_text(draw, (int(w * 0.07), int(h * 0.15)), headline[:40].upper(), fill=(255, 255, 255), stroke_fill=(0, 0, 0), stroke_width=6)
 
-        # Style 3: Statistic Proof (Numerical Callout)
+        # Style 3: Statistic Proof (Numerical Callout with Verified Evidence)
         elif style == ThumbnailStyle.STATISTIC_PROOF:
-            # Giant stat box
-            draw.rounded_rectangle([80, 140, 500, 320], radius=25, fill=(0, 184, 148))
-            draw.text((110, 180), badge or "90% FAIL", fill=(0, 0, 0))
+            stat_text = badge or "VERIFIED DATA"
+            draw.rounded_rectangle([int(w * 0.07), int(h * 0.07), int(w * 0.55), int(h * 0.17)], radius=25, fill=(0, 184, 148))
+            draw.text((int(w * 0.10), int(h * 0.095)), stat_text, fill=(0, 0, 0))
             # Headline under stat
-            draw.rectangle([0, 360, 1080, 580], fill=(0, 0, 0, 210))
-            self._draw_stroke_text(draw, (80, 410), headline[:35].upper(), fill=(255, 255, 255), stroke_fill=(0, 0, 0), stroke_width=5)
+            draw.rectangle([0, int(h * 0.19), w, int(h * 0.32)], fill=(0, 0, 0, 210))
+            self._draw_stroke_text(draw, (int(w * 0.07), int(h * 0.22)), headline[:35].upper(), fill=(255, 255, 255), stroke_fill=(0, 0, 0), stroke_width=5)
 
-        out_name = f"thumb_{style.value}_{uuid.uuid4().hex[:6]}.jpg"
+        res_suffix = f"{w}x{h}"
+        out_name = f"thumb_{style.value}_{res_suffix}_{uuid.uuid4().hex[:6]}.jpg"
         out_path = os.path.join(self.output_dir, out_name)
         canvas.convert("RGB").save(out_path, "JPEG", quality=90)
         return out_path
@@ -102,13 +105,15 @@ class ThumbnailGeneratorService:
         base_image_path: str,
         headline: str,
         stat_or_warning: Optional[str] = None,
+        verified_statistic: Optional[str] = None,
+        target_resolution: tuple[int, int] = (1080, 1920),
     ) -> List[ThumbnailCandidate]:
-        """Produce 3 distinct high-CTR thumbnail candidates."""
+        """Produce 3 distinct high-CTR thumbnail candidates using verified evidence and platform resolution."""
         img = Image.open(base_image_path)
         candidates = []
 
         # 1. Curiosity Hook
-        c1_path = self.generate_candidate(img, ThumbnailStyle.CURIOSITY_HOOK, headline, badge="WATCH FIRST")
+        c1_path = self.generate_candidate(img, ThumbnailStyle.CURIOSITY_HOOK, headline, badge="WATCH FIRST", target_resolution=target_resolution)
         candidates.append(
             ThumbnailCandidate(
                 id=f"c_{uuid.uuid4().hex[:6]}",
@@ -120,26 +125,28 @@ class ThumbnailGeneratorService:
         )
 
         # 2. Warning Alert
-        c2_path = self.generate_candidate(img, ThumbnailStyle.WARNING_ALERT, headline, badge=stat_or_warning or "⚠️ DO NOT DEPLOY")
+        badge2 = stat_or_warning or "⚠️ CRITICAL ALERT"
+        c2_path = self.generate_candidate(img, ThumbnailStyle.WARNING_ALERT, headline, badge=badge2, target_resolution=target_resolution)
         candidates.append(
             ThumbnailCandidate(
                 id=f"c_{uuid.uuid4().hex[:6]}",
                 style=ThumbnailStyle.WARNING_ALERT,
                 image_path=c2_path,
                 headline_text=headline,
-                badge_text=stat_or_warning or "⚠️ DO NOT DEPLOY",
+                badge_text=badge2,
             )
         )
 
-        # 3. Statistic Proof
-        c3_path = self.generate_candidate(img, ThumbnailStyle.STATISTIC_PROOF, headline, badge="90% FAIL")
+        # 3. Statistic Proof (only verified statistics from research/strategy or verified blueprint)
+        badge3 = verified_statistic or (stat_or_warning if (stat_or_warning and any(c.isdigit() for c in stat_or_warning)) else "VERIFIED DATA")
+        c3_path = self.generate_candidate(img, ThumbnailStyle.STATISTIC_PROOF, headline, badge=badge3, target_resolution=target_resolution)
         candidates.append(
             ThumbnailCandidate(
                 id=f"c_{uuid.uuid4().hex[:6]}",
                 style=ThumbnailStyle.STATISTIC_PROOF,
                 image_path=c3_path,
                 headline_text=headline,
-                badge_text="90% FAIL",
+                badge_text=badge3,
             )
         )
 

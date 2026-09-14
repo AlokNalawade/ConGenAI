@@ -8,6 +8,8 @@ import re
 import random
 from PIL import Image, ImageDraw, ImageFont
 
+from app.core.config import settings
+
 def clean_text(text: str) -> str:
     if not text:
         return ''
@@ -25,7 +27,8 @@ class ImageService:
     async def generate_image(self, prompt: str, caption_text: str = None, width: int = 1080, height: int = 1920) -> str:
         """
         Generates HD visual scene imagery (1080x1920) with clean subtitle overlays.
-        Fetches real photographic/AI scene visuals from Pollinations/LoremFlickr/Picsum with multi-provider fallbacks.
+        When ALLOW_EXTERNAL_GENERATION is enabled, fetches from Pollinations/LoremFlickr/Picsum.
+        By default (ALLOW_EXTERNAL_GENERATION=False), executes local-first high-contrast rendering.
         """
         cleaned_prompt = clean_text(prompt)
         cleaned_caption = clean_text(caption_text) if caption_text else cleaned_prompt
@@ -34,28 +37,28 @@ class ImageService:
         filename = f"{uuid.uuid4()}.jpg"
         filepath = os.path.join(self.output_dir, filename)
         
-        seed = random.randint(100, 999999)
-        first_word = (cleaned_prompt.split()[0] if cleaned_prompt else 'scene').lower()
-        
-        providers = [
-            f"https://image.pollinations.ai/prompt/high%20quality%20vertical%20photo%20{urllib.parse.quote(cleaned_prompt[:150])}?width={width}&height={height}&nologo=true&seed={seed}",
-            f"https://loremflickr.com/{width}/{height}/{urllib.parse.quote(first_word)}",
-            f"https://picsum.photos/{width}/{height}?random={seed}"
-        ]
-        
         img = None
-        for url in providers:
-            try:
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                def _fetch(u=url):
-                    with urllib.request.urlopen(req, timeout=6) as resp:
-                        return Image.open(resp).convert('RGB')
-                img = await asyncio.to_thread(_fetch)
-                if img:
-                    print(f"Scene visual fetched successfully from provider.")
-                    break
-            except Exception as e:
-                continue
+        if getattr(settings, "ALLOW_EXTERNAL_GENERATION", False):
+            seed = random.randint(100, 999999)
+            first_word = (cleaned_prompt.split()[0] if cleaned_prompt else 'scene').lower()
+            providers = [
+                f"https://image.pollinations.ai/prompt/high%20quality%20vertical%20photo%20{urllib.parse.quote(cleaned_prompt[:150])}?width={width}&height={height}&nologo=true&seed={seed}",
+                f"https://loremflickr.com/{width}/{height}/{urllib.parse.quote(first_word)}",
+                f"https://picsum.photos/{width}/{height}?random={seed}"
+            ]
+            
+            for url in providers:
+                try:
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    def _fetch(u=url):
+                        with urllib.request.urlopen(req, timeout=6) as resp:
+                            return Image.open(resp).convert('RGB')
+                    img = await asyncio.to_thread(_fetch)
+                    if img:
+                        print(f"Scene visual fetched successfully from provider.")
+                        break
+                except Exception as e:
+                    continue
 
         # Fallback to vibrant Pillow graphic if all external APIs are unreachable
         if img is None:
