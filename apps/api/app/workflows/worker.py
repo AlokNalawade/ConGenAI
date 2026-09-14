@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from app.db.database import AsyncSessionLocal
-from app.db.models import PipelineJobDB
+from app.db.models import PipelineJobDB, PipelineRun
 from app.core.logging import log_manager
 from app.core.compute_config import compute_config
 
@@ -126,29 +126,46 @@ class JobManager:
             idempotency_key=idempotency_key,
         )
 
+        run_uuid = uuid.UUID(job.pipeline_run_id)
+        content_uuid = uuid.UUID(job.content_id)
+
         async with AsyncSessionLocal() as db:
+            # 1. Guarantee PipelineRun exists to satisfy Foreign Key constraint
+            existing_run = await db.get(PipelineRun, run_uuid)
+            if not existing_run:
+                db_run = PipelineRun(
+                    id=run_uuid,
+                    content_id=content_uuid,
+                    status="queued",
+                    current_stage="INIT",
+                    is_current=True,
+                )
+                db.add(db_run)
+                await db.flush()
+
+            # 2. Insert PipelineJobDB
             db_job = PipelineJobDB(
                 id=job.job_id,
-                content_id=uuid.UUID(job.content_id),
+                content_id=content_uuid,
                 idempotency_key=job.idempotency_key,
                 status=job.status,
                 current_stage=job.current_stage,
                 progress_percent=job.progress_percent,
                 model_overrides=job.model_overrides,
                 resume=1 if job.resume else 0,
-                pipeline_run_id=uuid.UUID(job.pipeline_run_id),
+                pipeline_run_id=run_uuid,
             )
             try:
                 db.add(db_job)
                 await db.commit()
                 logger.info(f"Created pipeline job {job_id} in DB")
             except IntegrityError:
-                # Issue #4: idempotency constraint hit — return existing job
+                # Idempotency constraint or active job constraint hit — return existing job
                 await db.rollback()
                 if idempotency_key:
                     result = await db.execute(
                         select(PipelineJobDB).filter(
-                            PipelineJobDB.content_id == uuid.UUID(str(content_id)),
+                            PipelineJobDB.content_id == content_uuid,
                             PipelineJobDB.idempotency_key == idempotency_key,
                         )
                     )
@@ -158,6 +175,13 @@ class JobManager:
                             f"Idempotency hit (DB constraint): returning existing job {existing.id}"
                         )
                         return _db_to_job(existing)
+                # Check if partial unique index for active job was triggered
+                active = await self.get_active_job_by_content(str(content_id))
+                if active:
+                    logger.info(
+                        f"Active job collision (DB constraint): returning existing active job {active.job_id}"
+                    )
+                    return active
                 raise
 
         # Enqueue to Redis queue unless testing or enqueue=False

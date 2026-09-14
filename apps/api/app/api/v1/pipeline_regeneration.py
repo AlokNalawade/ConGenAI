@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import delete, update
+from sqlalchemy import delete, update, or_, and_
 
 from app.db.database import get_db
 from app.db.models import (
@@ -47,14 +47,20 @@ _STAGE_TO_WORKFLOW_STATE = {
 
 
 class RegenerateBody(BaseModel):
-    mode: Literal["full", "visuals"] = Field(
+    mode: Literal["full", "visuals", "scene"] = Field(
         default="full",
         description=(
             "'full'    — Start a completely new pipeline run with lineage. "
             "All stages are re-run from scratch.\n"
             "'visuals' — Keep approved script and scene plan. Only regenerate "
-            "images, audio, and video."
+            "images, audio, and video.\n"
+            "'scene'   — Keep approved script and other scenes. Only regenerate "
+            "a specific scene's media assets."
         ),
+    )
+    scene_number: Optional[int] = Field(
+        default=None,
+        description="Scene number to regenerate when mode is 'scene'.",
     )
     reason: Optional[str] = Field(
         default=None,
@@ -98,7 +104,77 @@ async def regenerate_content(
     )
     latest_run = run_result.scalars().first()
 
-    if mode == "visuals":
+    if mode == "scene":
+        if not latest_run:
+            raise HTTPException(
+                status_code=400,
+                detail="No pipeline run found for this content. Run the full pipeline first.",
+            )
+        scene_number = body.scene_number if body else None
+        if scene_number is None:
+            raise HTTPException(
+                status_code=400,
+                detail="scene_number is required when mode='scene'.",
+            )
+        
+        run_id = latest_run.id
+
+        # Find the specific scene record
+        sc_res = await db.execute(
+            select(DBScene).filter(
+                DBScene.content_id == content_id,
+                DBScene.pipeline_run_id == run_id,
+                DBScene.scene_number == scene_number,
+            )
+        )
+        target_scene = sc_res.scalars().first()
+        if not target_scene:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Scene {scene_number} not found for this pipeline run.",
+            )
+
+        # Delete only assets for this specific scene, plus any unattached final composite video
+        await db.execute(
+            delete(DBAsset).where(
+                DBAsset.content_id == content_id,
+                DBAsset.pipeline_run_id == run_id,
+                or_(
+                    DBAsset.scene_id == target_scene.id,
+                    and_(DBAsset.asset_type == "video", DBAsset.scene_id.is_(None)),
+                ),
+            )
+        )
+
+        latest_run.status = "queued"
+        latest_run.current_stage = f"RESUMING_SCENE_{scene_number}"
+        latest_run.error = None
+        latest_run.run_type = f"scene_{scene_number}_regeneration"
+        if reason:
+            latest_run.reason = reason
+
+        await update_workflow_state(db, content_id, WorkflowState.ASSETS)
+        await db.commit()
+
+        job = await job_manager.create_job(
+            content_id=str(content_id),
+            resume=True,
+            pipeline_run_id=str(run_id),
+        )
+
+        return {
+            "job_id": job.job_id,
+            "content_id": str(content_id),
+            "pipeline_run_id": str(run_id),
+            "mode": "scene",
+            "scene_number": scene_number,
+            "run_type": f"scene_{scene_number}_regeneration",
+            "reason": reason,
+            "status": "202_accepted",
+            "message": f"Scene {scene_number} regeneration queued. Other scenes preserved.",
+        }
+
+    elif mode == "visuals":
         if not latest_run:
             raise HTTPException(
                 status_code=400,

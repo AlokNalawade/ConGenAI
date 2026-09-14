@@ -183,10 +183,8 @@ async def test_research_failure(tmp_path):
             )
 
             pipeline = ContentPipeline()
-            ctx = await pipeline.run(content_id, db, resume=False, pipeline_run_id=run_id)
-
-        # Pipeline should have caught the error
-        assert ctx.current_state == WorkflowState.FAILED
+            with pytest.raises(RuntimeError):
+                await pipeline.run(content_id, db, resume=False, pipeline_run_id=run_id)
 
         # Verify DB
         await db.refresh(content)
@@ -241,8 +239,8 @@ async def test_render_failure_then_resume(tmp_path):
             )
 
             pipeline = ContentPipeline()
-            ctx1 = await pipeline.run(content_id, db, resume=False, pipeline_run_id=run_id)
-            assert ctx1.current_state == WorkflowState.FAILED
+            with pytest.raises(RuntimeError):
+                await pipeline.run(content_id, db, resume=False, pipeline_run_id=run_id)
 
         # Second run: resume with same run_id — render should now succeed
         with patch("app.workflows.content_pipeline.ResearchAgent") as MockRA2, \
@@ -330,10 +328,8 @@ async def test_partial_media_failure(tmp_path):
             MockVA.return_value.generate_voice = AsyncMock(side_effect=voice_side_effect)
 
             pipeline = ContentPipeline()
-            ctx = await pipeline.run(content_id, db, resume=False, pipeline_run_id=run_id)
-
-        # Should have failed at the media step
-        assert ctx.current_state == WorkflowState.FAILED
+            with pytest.raises(RuntimeError):
+                await pipeline.run(content_id, db, resume=False, pipeline_run_id=run_id)
 
         # Verify: Scene 1 has completed assets in DB
         from sqlalchemy.future import select
@@ -365,13 +361,24 @@ async def test_process_restart_recovery():
         # Create a "running" job with stale heartbeat (10 min ago)
         stale_time = datetime.utcnow() - timedelta(minutes=10)
         job_id = f"job_{uuid.uuid4().hex[:8]}"
+        run_id = uuid.uuid4()
+        run_db = DBPipelineRun(
+            id=run_id,
+            content_id=content_id,
+            status="running",
+            current_stage="ASSETS",
+            is_current=True,
+        )
+        db.add(run_db)
+        await db.flush()
+
         db_job = PipelineJobDB(
             id=job_id,
             content_id=content_id,
             status="running",
             current_stage="ASSETS",
             last_heartbeat=stale_time,
-            pipeline_run_id=uuid.uuid4(),
+            pipeline_run_id=run_id,
         )
         db.add(db_job)
         await db.commit()
@@ -574,6 +581,16 @@ async def test_recover_queued_jobs_dispatches_to_redis():
         # Simulate a QUEUED job (Redis was down when API accepted the request)
         job_id = f"job_{uuid.uuid4().hex[:8]}"
         run_id = uuid.uuid4()
+        run_db = DBPipelineRun(
+            id=run_id,
+            content_id=content_id,
+            status="queued",
+            current_stage="QUEUED",
+            is_current=True,
+        )
+        db.add(run_db)
+        await db.flush()
+
         db_job = PipelineJobDB(
             id=job_id,
             content_id=content_id,

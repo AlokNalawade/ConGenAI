@@ -17,6 +17,7 @@ class WorkflowState(str, Enum):
     SCRIPT = "scripting"
     SCENES = "planning_scenes"
     ASSETS = "generating_assets"
+    GENERATING_ASSETS = "generating_assets"
     VOICE = "generating_voice"
     RENDER = "rendering_video"
     QUALITY_CHECK = "quality_check"

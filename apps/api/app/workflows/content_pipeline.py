@@ -230,7 +230,7 @@ class ContentPipeline:
         model_overrides: Optional[Dict[str, str]] = None,
         resume: bool = True,
         pipeline_run_id: Optional[uuid.UUID] = None,
-        raise_on_failure: bool = False,
+        raise_on_failure: bool = True,
     ) -> WorkflowContext:
         ctx = WorkflowContext(content_id=content_id, model_overrides=model_overrides or {})
         run_id = pipeline_run_id or uuid.uuid4()
@@ -281,16 +281,26 @@ class ContentPipeline:
                 db.add(pipeline_run)
                 await db.commit()
         else:
-            # NEW path: create fresh PipelineRun
-            pipeline_run = DBPipelineRun(
-                id=run_id,
-                content_id=content_id,
-                status="running",
-                current_stage="INIT",
-                model_overrides=model_overrides or {}
-            )
-            db.add(pipeline_run)
-            await db.commit()
+            # NEW path: reuse pre-created PipelineRun if present, otherwise insert
+            existing_run = await db.get(DBPipelineRun, run_id) if run_id else None
+            if existing_run:
+                pipeline_run = existing_run
+                pipeline_run.status = "running"
+                pipeline_run.current_stage = "INIT"
+                pipeline_run.error = None
+                if model_overrides:
+                    pipeline_run.model_overrides = model_overrides
+                await db.commit()
+            else:
+                pipeline_run = DBPipelineRun(
+                    id=run_id,
+                    content_id=content_id,
+                    status="running",
+                    current_stage="INIT",
+                    model_overrides=model_overrides or {}
+                )
+                db.add(pipeline_run)
+                await db.commit()
 
         await log_manager.broadcast(
             f"🚀 Content Pipeline initiated for '{ctx.title}' ({content_id}) [Run ID: {run_id}] [Resume: {resume}]",
@@ -815,6 +825,11 @@ class ContentPipeline:
                     script=ctx.script,
                     scene_plan=ctx.scene_plan,
                     scene_assets=ctx.scene_assets,
-                    final_video_path=ctx.final_video_path
+                    final_video_path=ctx.final_video_path,
                 )
         ctx.quality_result = quality_res
+        if not quality_res.passed:
+            err_reasons = ", ".join(quality_res.feedback) if quality_res.feedback else f"overall score {quality_res.overall_score}"
+            raise RuntimeError(f"Quality check rejected render: {err_reasons}")
+
+

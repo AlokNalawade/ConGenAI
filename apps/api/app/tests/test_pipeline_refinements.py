@@ -46,10 +46,22 @@ async def test_race_condition_guard_on_regeneration_and_rerun():
         await db.refresh(content)
 
         # Create active job in DB
+        run_id = uuid.uuid4()
+        run_db = DBPipelineRun(
+            id=run_id,
+            content_id=content.id,
+            status="running",
+            current_stage="RENDER",
+            is_current=True,
+        )
+        db.add(run_db)
+        await db.flush()
+
         active_job = PipelineJobDB(
             id=f"job_{uuid.uuid4().hex[:8]}",
             content_id=content.id,
             status="running",
+            pipeline_run_id=run_id,
         )
         db.add(active_job)
         await db.commit()
@@ -374,5 +386,6 @@ async def test_alembic_migrations_up_to_date():
     script = ScriptDirectory.from_config(alembic_cfg)
     head_rev = script.get_current_head()
     assert head_rev is not None
-    assert head_rev == "6f9d505eaa6c"
+    assert head_rev == "c5a1a628620f"
+
 

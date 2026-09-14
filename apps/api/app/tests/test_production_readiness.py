@@ -65,12 +65,24 @@ async def test_pipeline_failure_raises_and_marks_worker_job_failed():
         )
         db.add(content)
 
-        # Create pipeline job
+        # Create pipeline run and job
         job_id = f"job_{uuid.uuid4().hex[:8]}"
+        run_id = uuid.uuid4()
+        run_db = DBPipelineRun(
+            id=run_id,
+            content_id=content.id,
+            status="queued",
+            current_stage="INIT",
+            is_current=True,
+        )
+        db.add(run_db)
+        await db.flush()
+
         job = PipelineJobDB(
             id=job_id,
             content_id=content.id,
             status="queued",
+            pipeline_run_id=run_id,
         )
         db.add(job)
         await db.commit()

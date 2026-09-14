@@ -17,6 +17,7 @@ from app.db.models import (
     ContentIdea as DBContentIdea,
     ContentBatch as DBContentBatch,
     PipelineJobDB,
+    PipelineRun as DBPipelineRun,
 )
 from app.workflows.workflow_state import WorkflowState
 from app.agents.batch_strategy import BatchStrategyAgent
@@ -94,6 +95,17 @@ async def trigger_batch_pipeline(
         db.add(content)
         await db.flush()  # get content.id
 
+        run_id = uuid.uuid4()
+        run_db = DBPipelineRun(
+            id=run_id,
+            content_id=content.id,
+            status="queued",
+            current_stage="INIT",
+            is_current=True,
+        )
+        db.add(run_db)
+        await db.flush()
+
         job_id = f"job_{uuid.uuid4().hex[:8]}"
         job_db = PipelineJobDB(
             id=job_id,
@@ -102,20 +114,21 @@ async def trigger_batch_pipeline(
             progress_percent=0,
             model_overrides=req.model_overrides or {},
             resume=False,
+            pipeline_run_id=run_id,
         )
         db.add(job_db)
-        job_records.append((job_id, content.id, variation))
+        job_records.append((job_id, content.id, run_id, variation))
 
     # Single atomic commit for everything
     await db.commit()
 
     # Dispatch to Redis task queue
     queued_jobs = []
-    for job_id, content_id, variation in job_records:
+    for job_id, content_id, run_id, variation in job_records:
         await enqueue_pipeline_job(
             job_id=job_id,
             content_id=str(content_id),
-            pipeline_run_id=str(uuid.uuid4()),
+            pipeline_run_id=str(run_id),
             model_overrides=req.model_overrides or {},
             resume=False,
         )
