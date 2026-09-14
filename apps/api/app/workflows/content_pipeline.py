@@ -780,12 +780,14 @@ class ContentPipeline:
 
             if first_scene_img:
                 verified_stat = None
-                if ctx.research and ctx.research.key_findings:
-                    for finding in ctx.research.key_findings:
-                        if any(c.isdigit() for c in finding) and len(finding) < 40:
-                            verified_stat = finding
-                            break
-                elif ctx.strategy and getattr(ctx.strategy, "hook", None):
+                findings = []
+                if ctx.research:
+                    findings = getattr(ctx.research, "statistics", []) or getattr(ctx.research, "key_points", [])
+                for finding in findings:
+                    if any(c.isdigit() for c in finding) and len(finding) < 40:
+                        verified_stat = finding
+                        break
+                if not verified_stat and ctx.strategy and getattr(ctx.strategy, "hook", None):
                     hook = ctx.strategy.hook
                     if any(c.isdigit() for c in hook) and len(hook) < 30:
                         verified_stat = hook

@@ -2,6 +2,8 @@ import os
 import json
 import asyncio
 import logging
+import shutil
+import re
 from typing import Optional, Dict, Any
 from app.models.ai_contracts import QualityResult, ScriptResult, ScenePlan
 
@@ -9,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 async def run_ffprobe_inspection(file_path: str, allow_fallback: Optional[bool] = None) -> Dict[str, Any]:
     """
-    Executes ffprobe to extract technical video/audio metadata.
-    Fail-closed: if ffprobe is unavailable or fails, technical QA is rejected
+    Executes ffprobe (or bundled ffmpeg inspection) to extract technical video/audio metadata.
+    Fail-closed: if inspection tools are unavailable or fail, technical QA is rejected
     unless ALLOW_QA_FALLBACK is explicitly enabled for development.
     """
     if not file_path or not os.path.exists(file_path):
@@ -19,89 +21,120 @@ async def run_ffprobe_inspection(file_path: str, allow_fallback: Optional[bool] 
     from app.core.config import settings
     fallback_enabled = allow_fallback if allow_fallback is not None else settings.ALLOW_QA_FALLBACK
 
-    cmd = [
-        "ffprobe",
-        "-v", "error",
-        "-print_format", "json",
-        "-show_format",
-        "-show_streams",
-        file_path
-    ]
+    # 1. Try ffprobe if available
+    ffprobe_bin = shutil.which("ffprobe")
+    if ffprobe_bin:
+        cmd = [
+            ffprobe_bin,
+            "-v", "error",
+            "-print_format", "json",
+            "-show_format",
+            "-show_streams",
+            file_path
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                data = json.loads(stdout.decode())
+                streams = data.get("streams", [])
+                format_info = data.get("format", {})
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
+                has_video = any(s.get("codec_type") == "video" for s in streams)
+                has_audio = any(s.get("codec_type") == "audio" for s in streams)
+                duration = float(format_info.get("duration", 0.0))
+                size = int(format_info.get("size", 0))
 
-        if proc.returncode != 0:
-            err_msg = stderr.decode().strip() or f"FFprobe process failed with exit code {proc.returncode}"
-            logger.warning(f"FFprobe inspection failed: {err_msg}")
-            if not fallback_enabled:
-                return {"valid": False, "error": f"FFprobe validation failed: {err_msg}"}
-            logger.warning("ALLOW_QA_FALLBACK=True: using dev-only inspection fallback.")
+                v_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
+                width = int(v_stream.get("width", 0))
+                height = int(v_stream.get("height", 0))
+
+                return {
+                    "valid": has_video,
+                    "has_video": has_video,
+                    "has_audio": has_audio,
+                    "duration": duration,
+                    "size": size,
+                    "width": width,
+                    "height": height,
+                    "format": format_info.get("format_name"),
+                    "streams_count": len(streams),
+                    "is_fallback": False,
+                }
+        except Exception as ex:
+            logger.warning(f"FFprobe execution error: {ex}")
+
+    # 2. Try bundled FFmpeg inspection (-i metadata) if ffprobe was absent
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        try:
+            import imageio_ffmpeg
+            ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg_bin = None
+
+    if ffmpeg_bin:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                ffmpeg_bin,
+                "-i",
+                file_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            out = stderr.decode()
+            has_video = "Video:" in out
+            has_audio = "Audio:" in out
+            dur_m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)", out)
+            duration = 0.0
+            if dur_m:
+                duration = int(dur_m.group(1)) * 3600 + int(dur_m.group(2)) * 60 + float(dur_m.group(3))
+            res_m = re.search(r"Video:.*?(\d{3,4})x(\d{3,4})", out)
+            width = int(res_m.group(1)) if res_m else 0
+            height = int(res_m.group(2)) if res_m else 0
             size = os.path.getsize(file_path)
-            return {
-                "valid": size > 1000,
-                "has_video": True,
-                "has_audio": True,
-                "duration": 0.0,
-                "size": size,
-                "width": 1080,
-                "height": 1920,
-                "format": "mp4",
-                "streams_count": 2,
-                "is_fallback": True,
-            }
 
-        data = json.loads(stdout.decode())
-        streams = data.get("streams", [])
-        format_info = data.get("format", {})
+            if has_video:
+                return {
+                    "valid": True,
+                    "has_video": True,
+                    "has_audio": has_audio,
+                    "duration": duration,
+                    "size": size,
+                    "width": width,
+                    "height": height,
+                    "format": "mp4",
+                    "streams_count": (1 if has_video else 0) + (1 if has_audio else 0),
+                    "is_fallback": False,
+                }
+        except Exception as e:
+            logger.warning(f"FFmpeg inspection error: {e}")
 
-        has_video = any(s.get("codec_type") == "video" for s in streams)
-        has_audio = any(s.get("codec_type") == "audio" for s in streams)
-        duration = float(format_info.get("duration", 0.0))
-        size = int(format_info.get("size", 0))
-
-        v_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
-        width = int(v_stream.get("width", 0))
-        height = int(v_stream.get("height", 0))
-
+    # 3. Fail-closed or dev fallback
+    if not fallback_enabled:
         return {
-            "valid": has_video,
-            "has_video": has_video,
-            "has_audio": has_audio,
-            "duration": duration,
-            "size": size,
-            "width": width,
-            "height": height,
-            "format": format_info.get("format_name"),
-            "streams_count": len(streams),
-            "is_fallback": False,
+            "valid": False,
+            "error": "FFprobe and FFmpeg inspection unavailable or failed. Technical QA rejected."
         }
-    except Exception as e:
-        logger.warning(f"FFprobe technical inspection error: {e}")
-        if not fallback_enabled:
-            return {
-                "valid": False,
-                "error": f"FFprobe unavailable or failed ({e}). Technical QA rejected."
-            }
-        logger.warning("ALLOW_QA_FALLBACK=True: using dev-only inspection fallback on exception.")
-        size = os.path.getsize(file_path)
-        return {
-            "valid": size > 1000,
-            "has_video": True,
-            "has_audio": True,
-            "duration": 0.0,
-            "size": size,
-            "width": 1080,
-            "height": 1920,
-            "format": "mp4",
-            "streams_count": 2,
-            "is_fallback": True,
-        }
+    logger.warning("ALLOW_QA_FALLBACK=True: using dev-only inspection fallback.")
+    size = os.path.getsize(file_path)
+    return {
+        "valid": size > 1000,
+        "has_video": True,
+        "has_audio": True,
+        "duration": 0.0,
+        "size": size,
+        "width": 1080,
+        "height": 1920,
+        "format": "mp4",
+        "streams_count": 2,
+        "is_fallback": True,
+    }
 
 class QualityAgent:
     def __init__(self):
