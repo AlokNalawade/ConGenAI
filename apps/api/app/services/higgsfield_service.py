@@ -1,4 +1,3 @@
-import asyncio
 import os
 import uuid
 from pathlib import Path
@@ -10,12 +9,7 @@ from app.core.config import settings
 
 
 class HiggsfieldVideoService:
-    """Generate cloud video through the official Higgsfield Python SDK.
-
-    Credentials stay server-side. The service downloads the completed asset
-    into ConGenAI's local asset directory so downstream FFmpeg/QA stages can
-    treat cloud output like any other video asset.
-    """
+    """Generate cloud video through the official Higgsfield Python SDK."""
 
     DEFAULT_MODEL = "minimax/h3/text-to-video"
 
@@ -26,8 +20,6 @@ class HiggsfieldVideoService:
 
     @staticmethod
     def _configure_credentials() -> None:
-        # Support both the official SDK names and ConGenAI-specific names.
-        # Never log these values.
         if not os.getenv("HF_KEY"):
             key_id = os.getenv("HIGGSFIELD_API_KEY_ID")
             key_secret = os.getenv("HIGGSFIELD_API_KEY_SECRET")
@@ -37,22 +29,10 @@ class HiggsfieldVideoService:
     @staticmethod
     def _video_url(result: Any) -> str:
         video = result.get("video") if isinstance(result, dict) else None
+        if isinstance(video, dict) and video.get("url"):
+            return video["url"]
         if isinstance(video, str):
             return video
-        if isinstance(video, dict):
-            for key in ("url", "uri", "download_url"):
-                value = video.get(key)
-                if value:
-                    return value
-        if isinstance(video, list) and video:
-            first = video[0]
-            if isinstance(first, str):
-                return first
-            if isinstance(first, dict):
-                for key in ("url", "uri", "download_url"):
-                    value = first.get(key)
-                    if value:
-                        return value
         raise RuntimeError("Higgsfield completed without a video URL")
 
     async def generate(
@@ -75,7 +55,7 @@ class HiggsfieldVideoService:
         if not settings.ALLOW_EXTERNAL_GENERATION:
             raise PermissionError(
                 "External generation is disabled. Set ALLOW_EXTERNAL_GENERATION=true "
-                "only when you want ConGenAI to use Higgsfield."
+                "to use Higgsfield."
             )
 
         self._configure_credentials()
@@ -92,7 +72,7 @@ class HiggsfieldVideoService:
                 "Higgsfield SDK is not installed. Run: pip install higgsfield-client"
             ) from exc
 
-        result = await higgsfield_client.subscribe_async(
+        controller = await higgsfield_client.submit_async(
             self.model,
             arguments={
                 "prompt": prompt,
@@ -102,6 +82,7 @@ class HiggsfieldVideoService:
                 "aigc_watermark": aigc_watermark,
             },
         )
+        result = await controller.get()
         video_url = self._video_url(result)
 
         output = self.output_dir / f"higgsfield_{uuid.uuid4().hex}.mp4"
