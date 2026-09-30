@@ -25,7 +25,7 @@ class ModelRouter:
         "script": DEFAULT_TEXT_MAC,
         "scene": DEFAULT_TEXT_MAC,
         "image": "mock-image",
-        "video": os.getenv("H3_MODEL", "minimax-h3"),
+        "video": os.getenv("VIDEO_MODEL") or os.getenv("H3_MODEL", "minimax-h3"),
         "voice": "mock-audio",
     }
 
