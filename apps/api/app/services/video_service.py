@@ -66,6 +66,23 @@ class VideoService:
             print('stderr:', err_msg)
             raise RuntimeError(f"FFmpeg render error: {err_msg}") from e
 
+    def mux_audio(self, video_path: str, audio_path: str, duration: float = None) -> str:
+        """Mux an existing generated video with ConGenAI narration audio."""
+        filename = f"muxed_{uuid.uuid4()}.mp4"
+        filepath = os.path.join(self.output_dir, filename)
+        input_video = ffmpeg.input(video_path)
+        input_audio = ffmpeg.input(audio_path)
+        kwargs = {"vcodec": "copy", "acodec": "aac", "shortest": None, "movflags": "+faststart"}
+        if duration and float(duration) > 0:
+            kwargs["t"] = float(duration)
+        try:
+            stream = ffmpeg.output(input_video.video, input_audio.audio, filepath, **kwargs)
+            ffmpeg.run(stream, cmd=self.ffmpeg_cmd, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            return filepath
+        except ffmpeg.Error as e:
+            err_msg = e.stderr.decode("utf8") if e.stderr else str(e)
+            raise RuntimeError(f"FFmpeg audio mux error: {err_msg}") from e
+
     def concatenate_videos(self, video_paths: list[str]) -> str:
         if not video_paths:
             raise ValueError("No video paths provided")
