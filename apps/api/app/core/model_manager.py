@@ -14,6 +14,7 @@ from app.core.model_providers import (
     ComfyUIModelProvider,
     TorchModelProvider,
     MockTrackingProvider,
+    H3MacProvider,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ def _default_providers() -> Dict[str, ModelProvider]:
             "torch": mock,
             "kokoro": mock,
             "mock": mock,
+            "h3": mock,
         }
     return {
         "ollama": OllamaModelProvider(),
@@ -72,6 +74,7 @@ def _default_providers() -> Dict[str, ModelProvider]:
         "torch": TorchModelProvider(),
         "kokoro": TorchModelProvider(),
         "mock": NoopProvider(),
+        "h3": H3MacProvider(),
     }
 
 
