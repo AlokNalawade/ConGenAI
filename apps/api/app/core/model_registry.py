@@ -60,6 +60,9 @@ class ModelRegistry:
             "mock-image": ModelSpec("mock-image", "mock", "image", 0.0),
             "mock-video": ModelSpec("mock-video", "mock", "video", 0.0),
             "mock-audio": ModelSpec("mock-audio", "mock", "audio", 0.0),
+            # H3 is executed by an external Apple-Silicon runner (MLX/Metal).
+            # Memory is managed by that runner rather than ConGenAI's CUDA budget.
+            "minimax-h3": ModelSpec("minimax-h3", "h3", "video", 0.0, unload_after_use=True),
         })
 
     @classmethod
