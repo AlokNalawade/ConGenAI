@@ -63,6 +63,7 @@ class ModelRegistry:
             # H3 is executed by an external Apple-Silicon runner (MLX/Metal).
             # Memory is managed by that runner rather than ConGenAI's CUDA budget.
             "minimax-h3": ModelSpec("minimax-h3", "h3", "video", 0.0, unload_after_use=True),
+            "higgsfield-h3": ModelSpec("higgsfield-h3", "higgsfield", "video", 0.0, unload_after_use=True),
         })
 
     @classmethod
