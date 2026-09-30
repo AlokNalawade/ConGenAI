@@ -8,6 +8,8 @@ from app.db.database import get_db
 from app.db.models import Scene as DBScene, Asset as DBAsset, Content as DBContent
 from app.models.schemas import Asset
 from app.agents.video import VideoAgent
+from app.services.h3_service import H3MacService
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
@@ -68,3 +70,65 @@ async def generate_video(content_id: uuid.UUID, db: AsyncSession = Depends(get_d
     await db.refresh(db_asset)
     
     return db_asset
+
+
+class H3GenerateRequest(BaseModel):
+    content_id: uuid.UUID
+    prompt: str = Field(min_length=1)
+    width: int = 640
+    height: int = 384
+    seconds: float = 5.0
+    steps: int = 16
+    seed: int = 21
+    audio: bool = True
+
+
+@router.post("/h3/generate", response_model=Asset)
+async def generate_h3_video(request: H3GenerateRequest, db: AsyncSession = Depends(get_db)):
+    """Minimal Apple-Silicon H3 smoke-test endpoint.
+
+    This path is intentionally separate from the normal scene compositor until
+    H3 generation is validated on the developer's 16 GB MacBook Air.
+    """
+    content_result = await db.execute(
+        select(DBContent).filter(DBContent.id == request.content_id)
+    )
+    content = content_result.scalars().first()
+    if not content:
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    try:
+        path = await H3MacService().generate(
+            prompt=request.prompt,
+            width=request.width,
+            height=request.height,
+            seconds=request.seconds,
+            steps=request.steps,
+            seed=request.seed,
+            audio=request.audio,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    asset = DBAsset(
+        content_id=request.content_id,
+        asset_type="video",
+        path=path,
+        mime_type="video/mp4",
+        provider="h3",
+        model="minimax-h3",
+        metadata_json={
+            "width": request.width,
+            "height": request.height,
+            "seconds": request.seconds,
+            "steps": request.steps,
+            "audio": request.audio,
+            "backend": "minimax-h3-stream-mac",
+        },
+    )
+    db.add(asset)
+    await db.commit()
+    await db.refresh(asset)
+    return asset
