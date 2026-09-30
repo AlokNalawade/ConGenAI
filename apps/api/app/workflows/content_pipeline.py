@@ -42,6 +42,7 @@ from app.core.agent_tracker import AgentTracker
 from app.core.compute_config import compute_config, ResourceSemaphores
 from app.core.model_manager import ModelManager
 from app.core.model_router import ModelRouter
+from app.services.higgsfield_service import HiggsfieldVideoService
 
 logger = logging.getLogger(__name__)
 
@@ -725,6 +726,11 @@ class ContentPipeline:
         video_model = self.model_router.route("video", ctx.model_overrides)
         await self.model_manager.ensure_loaded(video_model)
 
+        # Cloud video providers generate the visual motion; ConGenAI still owns
+        # narration/audio, concatenation, metadata, and QA locally.
+        if video_model == "higgsfield-h3":
+            return await self._run_higgsfield_render_step(ctx, db)
+
         video_agent = VideoAgent()
         scene_video_paths = []
 
@@ -816,6 +822,45 @@ class ContentPipeline:
                     await db.commit()
         except Exception as thumb_err:
             logger.warning(f"Thumbnail generation warning in pipeline: {thumb_err}")
+
+    async def _run_higgsfield_render_step(self, ctx: WorkflowContext, db: AsyncSession):
+        service = HiggsfieldVideoService()
+        video_agent = VideoAgent()
+        scene_video_paths = []
+        sorted_scenes = sorted(ctx.scene_assets.keys())
+
+        async with self.semaphores.ffmpeg:
+            async with AgentTracker(db, ctx.content_id, "RENDER", "HiggsfieldVideoAgent", provider="higgsfield", model=service.model, pipeline_run_id=ctx.pipeline_run_id):
+                for sc_num in sorted_scenes:
+                    data = ctx.scene_assets[sc_num]
+                    prompt = data.get("visual_prompt") or data.get("narration") or ctx.title
+                    duration = max(5, min(15, int(round(data.get("duration", 5.0)))))
+                    result = await service.generate(prompt=prompt, duration=duration, aspect_ratio="9:16" if str(ctx.platform).lower() in {"shorts", "reels", "tiktok"} else "16:9")
+                    scene_vid = result["path"]
+                    if data.get("audio_path"):
+                        scene_vid = await asyncio.to_thread(video_agent.service.mux_audio, scene_vid, data["audio_path"], data.get("duration"))
+                    data["video_path"] = scene_vid
+                    scene_video_paths.append(scene_vid)
+
+                final_path = await video_agent.assemble_final(scene_video_paths)
+
+        ctx.final_video_path = final_path
+        final_asset = DBAsset(
+            content_id=ctx.content_id,
+            pipeline_run_id=ctx.pipeline_run_id,
+            asset_type="video",
+            path=final_path,
+            filename=os.path.basename(final_path),
+            mime_type="video/mp4",
+            provider="higgsfield",
+            model=service.model,
+            status="completed",
+            metadata_json={"provider": "higgsfield", "mode": "per-scene", "audio_muxed_locally": True},
+        )
+        db.add(final_asset)
+        await db.commit()
+        await db.refresh(final_asset)
+        ctx.final_video_asset_id = final_asset.id
 
     async def _run_quality_step(self, ctx: WorkflowContext, db: AsyncSession):
         await update_workflow_state(db, ctx.content_id, WorkflowState.QUALITY_CHECK)
