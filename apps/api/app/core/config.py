@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
 
+    # Admin key protects destructive/admin-only operations and diagnostics.
+    # Leave empty for local development; production must configure it.
+    ADMIN_API_KEY: str = ""
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
@@ -65,9 +69,6 @@ class Settings(BaseSettings):
     def SYNC_SQLALCHEMY_DATABASE_URI(self) -> str:
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
-    # Ignore harmless variables present in .env that are not application settings.
-    # This keeps `.env.example` safe to copy while still allowing strict typed fields
-    # for settings the application actually consumes.
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",
