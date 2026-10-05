@@ -1,39 +1,55 @@
 from typing import List, Union
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import AnyHttpUrl, validator
+from pydantic import AnyHttpUrl, field_validator
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "AI Content Factory"
     API_V1_STR: str = "/api/v1"
-    
-    # CORS
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
 
-    @validator("BACKEND_CORS_ORIGINS", pre=True)
+    ENV: str = "development"
+    PROFILE: str = "mac"
+
+    # Local/OpenAI-compatible LLM configuration.
+    LLM_BASE_URL: str = "http://localhost:11434/v1"
+    LLM_API_KEY: str = "ollama"
+    DEFAULT_MODEL: str = "llama3:latest"
+    LLM_DEFAULT_MODEL: str = "llama3:latest"
+
+    # Optional provider credentials. Keep real values in the local .env only.
+    OPENAI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+
+    # Admin key protects destructive/admin-only operations and diagnostics.
+    # Leave empty for local development; production must configure it.
+    ADMIN_API_KEY: str = ""
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
         if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
+            return [i.strip() for i in v.split(",") if i.strip()]
+        if isinstance(v, (list, str)):
             return v
         raise ValueError(v)
 
-    # Database
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: str = "5432"
     POSTGRES_DB: str = "congen"
 
-    # Redis
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
 
-    # Quality Assurance / Video Inspection
     ALLOW_QA_FALLBACK: bool = False
-
-    # Privacy / External Provider Gating
     ALLOW_EXTERNAL_GENERATION: bool = False
+
+    HIGGSFIELD_API_KEY_ID: str = ""
+    HIGGSFIELD_API_KEY_SECRET: str = ""
+    HIGGSFIELD_VIDEO_MODEL: str = "minimax/h3/text-to-video"
 
     @property
     def REDIS_URL(self) -> str:
@@ -48,12 +64,16 @@ class Settings(BaseSettings):
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-    
+
     @property
     def SYNC_SQLALCHEMY_DATABASE_URI(self) -> str:
-        # Used by Alembic for migrations which require sync driver
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
-    model_config = SettingsConfigDict(case_sensitive=True, env_file=".env")
+    model_config = SettingsConfigDict(
+        case_sensitive=True,
+        env_file=".env",
+        extra="ignore",
+    )
+
 
 settings = Settings()

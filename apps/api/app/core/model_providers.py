@@ -216,3 +216,32 @@ class TorchModelProvider:
 
     async def is_loaded(self, spec: ModelSpec) -> bool:
         return False
+
+
+class H3MacProvider:
+    """Lifecycle adapter for the low-memory Apple-Silicon H3 runner.
+
+    The runner is intentionally external to ConGenAI. This keeps the API process
+    small and lets the 16 GB Mac use layer-by-layer MLX weight streaming.
+    """
+
+    def __init__(self):
+        self.command = os.getenv("H3_COMMAND", "h3stream")
+        self.model_dir = os.getenv("H3_MODEL_DIR", "models")
+
+    async def load(self, spec: ModelSpec) -> None:
+        # h3stream loads weights per phase; there is no persistent GPU-resident
+        # model for ConGenAI to preload. Validate that the executable is present.
+        import shutil
+        if shutil.which(self.command) is None:
+            raise RuntimeError(
+                f"H3 runner '{self.command}' was not found on PATH. "
+                "Install minimax-h3-stream-mac and set H3_COMMAND/H3_MODEL_DIR."
+            )
+        logger.info("H3 Mac runner available: %s (model_dir=%s)", self.command, self.model_dir)
+
+    async def unload(self, spec: ModelSpec) -> None:
+        logger.info("H3 Mac runner releases model phases after generation")
+
+    async def is_loaded(self, spec: ModelSpec) -> bool:
+        return False

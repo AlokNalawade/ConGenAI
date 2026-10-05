@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import NullPool
 from app.core.config import settings
 
-engine_kwargs = {"echo": True}
+engine_kwargs = {"echo": settings.ENV.lower() == "development" and os.getenv("SQL_ECHO", "false").lower() == "true"}
 if os.getenv("TESTING", "false").lower() == "true" or os.getenv("PYTEST_CURRENT_TEST"):
     engine_kwargs["poolclass"] = NullPool
 
@@ -14,6 +14,7 @@ async_session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit
 AsyncSessionLocal = async_session_maker
 
 Base = declarative_base()
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
