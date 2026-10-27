@@ -27,13 +27,25 @@ async def generate_script(content_id: uuid.UUID, model: str = None, db: AsyncSes
     research_data = {
         "summary": research.summary,
         "key_points": research.key_points,
-        "hooks": research.hooks
+        "hooks": research.hooks,
+        "sources": research.sources,
+        "statistics": research.statistics,
+        "warnings": research.warnings,
+        "content_title": content.title,
+        "content_description": content.description,
     }
     
     # 2. Run Agent
     agent = ScriptAgent(model=model)
     try:
-        script_data = await agent.generate_script(research_data=research_data, platform=content.platform)
+        metadata = content.metadata_json or {}
+        script_data = await agent.generate_script(
+            research_data=research_data,
+            platform=content.platform or "Shorts",
+            target_duration=content.target_duration or 40,
+            target_audience=metadata.get("target_audience", "curious general audience"),
+            style=metadata.get("visual_style", "cinematic historical documentary"),
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -50,7 +62,16 @@ async def generate_script(content_id: uuid.UUID, model: str = None, db: AsyncSes
         status="generated"
     )
     db.add(db_script)
-    
+
+    # Persist the full production-ready package without requiring a schema migration.
+    # The normalized Script row remains compatible with existing scene/render stages.
+    package = script_dict.copy()
+    package["version"] = 1
+    package["content_id"] = str(content_id)
+    content_metadata = dict(content.metadata_json or {})
+    content_metadata["script_package"] = package
+    content.metadata_json = content_metadata
+
     # Update content status
     content.status = "scripting"
     db.add(content)
@@ -58,7 +79,16 @@ async def generate_script(content_id: uuid.UUID, model: str = None, db: AsyncSes
     await db.commit()
     await db.refresh(db_script)
     
-    return db_script
+    response_data = Script.model_validate(db_script).model_dump()
+    response_data.update({
+        key: script_dict[key]
+        for key in (
+            "on_screen_captions", "scene_beats", "factual_claims",
+            "verification_notes", "caption", "hashtags"
+        )
+        if key in script_dict
+    })
+    return response_data
 
 @router.get("/", response_model=List[Script])
 async def get_scripts(content_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
