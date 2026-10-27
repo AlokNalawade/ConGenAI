@@ -25,12 +25,28 @@ class StrategyResult(BaseModel):
     format_guidelines: List[str] = Field(default_factory=list, description="Visual and narrative format constraints")
 
 
+class ScriptBeat(BaseModel):
+    """One timed beat in a short-form script, ready for scene planning."""
+    scene_number: int = Field(..., ge=1)
+    start_second: float = Field(..., ge=0)
+    end_second: float = Field(..., gt=0)
+    narration: str = Field(..., min_length=1)
+    visual_prompt: str = Field(..., min_length=1)
+    onscreen_text: str = Field(default="", max_length=90)
+
+
 class ScriptResult(BaseModel):
     hook: str = Field(..., description="First 3 seconds attention grabber")
     body: str = Field(..., description="Main content narrative")
     cta: str = Field(default="Follow for more!", description="Call to action")
     estimated_duration: int = Field(default=30, description="Estimated duration in seconds")
     word_count: int = Field(default=0, description="Total word count of script")
+    on_screen_captions: List[str] = Field(default_factory=list, description="Short readable caption beats")
+    scene_beats: List[ScriptBeat] = Field(default_factory=list, description="Timed scene-by-scene narration and visual prompts")
+    factual_claims: List[str] = Field(default_factory=list, description="Specific historical claims that require evidence")
+    verification_notes: List[str] = Field(default_factory=list, description="Uncertainty or claims needing human source verification")
+    caption: str = Field(default="", description="Platform post caption ending with a question")
+    hashtags: List[str] = Field(default_factory=list, description="Relevant, non-spammy hashtags")
 
     def model_post_init(self, __context: Any) -> None:
         if self.word_count == 0 and (self.hook or self.body or self.cta):
@@ -144,7 +160,7 @@ def validate_ai_response(raw_input: Any, model_cls: Type[T]) -> T:
             if isinstance(data.get(list_field), list):
                 data[list_field] = [json.dumps(x) if isinstance(x, (dict, list)) else str(x) for x in data[list_field]]
     elif model_cls == ScriptResult:
-        for str_field in ["hook", "body", "cta"]:
+        for str_field in ["hook", "body", "cta", "caption"]:
             if isinstance(data.get(str_field), (dict, list)):
                 data[str_field] = json.dumps(data[str_field])
 
