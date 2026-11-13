@@ -48,6 +48,7 @@ class Channel(Base):
 
     ideas = relationship("ContentIdea", back_populates="channel")
     contents = relationship("Content", back_populates="channel")
+    topic_history = relationship("ChannelTopicHistory", cascade="all, delete-orphan")
 
 
 class ContentIdea(Base):
@@ -68,6 +69,23 @@ class ContentIdea(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     channel = relationship("Channel", back_populates="ideas")
     contents = relationship("Content", back_populates="idea")
+
+class ChannelTopicHistory(Base):
+    """Topics reserved or produced for a channel, preventing duplicate ideas."""
+    __tablename__ = "channel_topic_history"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "normalized_topic", name="uq_channel_topic_history_topic"),
+        Index("ix_channel_topic_history_channel_seen", "channel_id", "first_seen_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel_id = Column(UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
+    normalized_topic = Column(String(300), nullable=False)
+    topic = Column(String, nullable=False)
+    content_idea_id = Column(UUID(as_uuid=True), ForeignKey("content_ideas.id", ondelete="SET NULL"), nullable=True)
+    content_id = Column(UUID(as_uuid=True), ForeignKey("content.id", ondelete="SET NULL"), nullable=True)
+    first_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
 
 class ContentBatch(Base):
     __tablename__ = "content_batches"
