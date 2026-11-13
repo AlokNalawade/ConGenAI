@@ -74,7 +74,14 @@ def configured_source_domains(channel: Channel) -> list[str]:
         candidate = source.get("domain") or source.get("url")
         if not candidate:
             continue
-        parsed = urlparse(str(candidate) if "://" in str(candidate) else f"https://{candidate}")
+        raw = str(candidate).strip()
+        if "://" not in raw:
+            if "/" in raw or ":" in raw or " " in raw:
+                continue
+            raw = f"https://{raw}"
+        parsed = urlparse(raw)
+        if parsed.scheme not in ("http", "https"):
+            continue
         host = (parsed.hostname or "").lower()
         if host and host not in domains:
             domains.append(host)
