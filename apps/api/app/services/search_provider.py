@@ -30,19 +30,19 @@ class WebSearchProvider:
     def __init__(self, provider: str | None = None):
         self.provider = (provider or settings.DISCOVERY_SEARCH_PROVIDER).strip().lower()
 
-    async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+    async def search(self, query: str, limit: int = 10, domains: list[str] | None = None) -> list[dict[str, Any]]:
         if not query.strip():
             return []
         if self.provider == "tavily":
-            return await self._search_tavily(query, limit)
+            return await self._search_tavily(query, limit, domains)
         if self.provider == "brave":
-            return await self._search_brave(query, limit)
+            return await self._search_brave(query, limit, domains)
         raise SearchProviderError(
             f"Unsupported discovery search provider '{self.provider}'. "
             "Choose 'tavily' or 'brave'."
         )
 
-    async def _search_tavily(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def _search_tavily(self, query: str, limit: int, domains: list[str] | None = None) -> list[dict[str, Any]]:
         if not settings.TAVILY_API_KEY:
             raise SearchProviderError(
                 "TAVILY_API_KEY is not configured. Add it to the API environment "
@@ -57,6 +57,8 @@ class WebSearchProvider:
             "include_answer": False,
             "include_raw_content": False,
         }
+        if domains:
+            payload["include_domains"] = domains[:10]
         try:
             async with httpx.AsyncClient(timeout=25.0) as client:
                 response = await client.post("https://api.tavily.com/search", json=payload)
@@ -80,12 +82,15 @@ class WebSearchProvider:
             })
         return normalized
 
-    async def _search_brave(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def _search_brave(self, query: str, limit: int, domains: list[str] | None = None) -> list[dict[str, Any]]:
         if not settings.BRAVE_SEARCH_API_KEY:
             raise SearchProviderError(
                 "BRAVE_SEARCH_API_KEY is not configured. Add it to the API environment "
                 "or select Tavily with TAVILY_API_KEY."
             )
+        if domains:
+            domain_filter = " OR ".join(f"site:{domain}" for domain in domains[:10])
+            query = f"{query} ({domain_filter})"
         params = {"q": query, "count": max(1, min(limit, 20)), "safesearch": "moderate"}
         headers = {
             "Accept": "application/json",
