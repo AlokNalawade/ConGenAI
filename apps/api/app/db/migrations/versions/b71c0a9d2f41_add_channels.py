@@ -85,7 +85,7 @@ def upgrade() -> None:
     op.create_index("ix_channel_topic_history_channel_seen", "channel_topic_history", ["channel_id", "first_seen_at"])
     op.execute("""
         INSERT INTO channel_topic_history (id, channel_id, normalized_topic, topic, content_idea_id)
-        SELECT gen_random_uuid(), channel_id, left(lower(trim(coalesce(topic, title))), 300),
+        SELECT md5(channel_id::text || ':' || coalesce(topic, title))::uuid, channel_id, left(lower(trim(coalesce(topic, title))), 300),
                coalesce(topic, title), id
         FROM content_ideas WHERE channel_id IS NOT NULL
         ON CONFLICT (channel_id, normalized_topic) DO NOTHING
