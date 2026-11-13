@@ -183,11 +183,16 @@ class OpportunityDiscoveryService:
                 valid_assessments.append(assessment)
 
         history_result = await db.execute(
-            select(ChannelTopicHistory.normalized_topic).where(
+            select(ChannelTopicHistory.normalized_topic, ChannelTopicHistory.topic).where(
                 ChannelTopicHistory.channel_id == channel.id
             )
         )
-        used_topics = set(history_result.scalars().all())
+        # Re-normalize the display topic too, because the phase-one migration
+        # backfill used a simpler lower/trim transform for legacy records.
+        used_topics = set()
+        for stored_normalized, stored_topic in history_result.all():
+            used_topics.add(normalize_topic(stored_normalized or ""))
+            used_topics.add(normalize_topic(stored_topic or ""))
 
         scored = []
         seen_scored_topics = set()
