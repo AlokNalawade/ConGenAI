@@ -37,6 +37,32 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def classify_channel_jobs(
+    target_count: int,
+    job_ids: list[str],
+    job_statuses: dict[str, str],
+    prior_failed_count: int = 0,
+) -> tuple[str, int]:
+    """Derive channel status while preserving discovery shortfalls."""
+    completed = sum(1 for state in job_statuses.values() if state == "completed")
+    failed = sum(1 for state in job_statuses.values() if state in ("failed", "cancelled"))
+    active = any(
+        state in ("queued", "dispatching", "running", "resuming")
+        for state in job_statuses.values()
+    )
+    missing_or_unselected = max(0, target_count - len(job_ids))
+    failed_count = max(prior_failed_count, failed + missing_or_unselected)
+    if active:
+        return "running", failed_count
+    if failed or missing_or_unselected:
+        return ("partial" if completed or len(job_statuses) else "failed"), failed_count
+    if len(job_statuses) == len(job_ids) and completed == len(job_ids):
+        return "completed", failed_count
+    if len(job_statuses) < len(job_ids):
+        return "partial", failed_count
+    return "queued", failed_count
+
+
 class NightlyProductionOrchestrator:
     def __init__(self, discovery_service=None, job_manager=None):
         self.discovery_service = discovery_service or OpportunityDiscoveryService()
@@ -304,19 +330,14 @@ class NightlyProductionOrchestrator:
                     select(PipelineJobDB).where(PipelineJobDB.id.in_(channel_run.job_ids))
                 )).scalars().all()
                 states = {job.id: job.status for job in jobs}
-                completed = sum(1 for state in states.values() if state == "completed")
-                failed = sum(1 for state in states.values() if state in ("failed", "cancelled"))
-                active = any(state in ("queued", "dispatching", "running", "resuming") for state in states.values())
-                missing_or_unselected = max(0, channel_run.target_count - len(channel_run.job_ids))
-                channel_run.failed_count = max(channel_run.failed_count, failed + missing_or_unselected)
-                if active:
-                    channel_run.status = "running"
-                elif failed or missing_or_unselected:
-                    channel_run.status = "partial" if completed or len(jobs) else "failed"
-                elif len(jobs) == len(channel_run.job_ids) and completed == len(channel_run.job_ids):
-                    channel_run.status = "completed"
-                elif len(jobs) < len(channel_run.job_ids):
-                    channel_run.status = "partial"
+                channel_status, failed_count = classify_channel_jobs(
+                    channel_run.target_count,
+                    channel_run.job_ids,
+                    states,
+                    channel_run.failed_count,
+                )
+                channel_run.status = channel_status
+                channel_run.failed_count = failed_count
             elif channel_run.status in ("queued", "dispatching"):
                 channel_run.status = "failed"
                 channel_run.error = channel_run.error or "No pipeline jobs were persisted"
