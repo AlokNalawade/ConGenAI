@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, func, JSON, Float, Integer, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, String, DateTime, func, JSON, Float, Integer, ForeignKey, UniqueConstraint, Index, Boolean, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -12,9 +12,48 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+class Channel(Base):
+    """Independent editorial identity and nightly production configuration."""
+    __tablename__ = "channels"
+    __table_args__ = (
+        CheckConstraint(
+            "nightly_video_target >= 1 AND nightly_video_target <= 20",
+            name="ck_channels_nightly_video_target_range",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(120), nullable=False)
+    slug = Column(String(80), nullable=False, unique=True, index=True)
+    niche = Column(String(160), nullable=False)
+    description = Column(String, nullable=True)
+    target_audience = Column(String, nullable=True)
+    language = Column(String(16), nullable=False, default="en", server_default="en")
+    platforms = Column(JSON, nullable=False, default=list)
+    content_format = Column(String(80), nullable=False, default="short_form_video", server_default="short_form_video")
+    target_duration_min = Column(Integer, nullable=True)
+    target_duration_max = Column(Integer, nullable=True)
+    brand_voice = Column(String, nullable=True)
+    visual_style = Column(String, nullable=True)
+    voice_profile = Column(String, nullable=True)
+    topic_boundaries = Column(JSON, nullable=False, default=list)
+    excluded_topics = Column(JSON, nullable=False, default=list)
+    research_sources = Column(JSON, nullable=False, default=list)
+    monetization_strategy = Column(JSON, nullable=False, default=dict)
+    nightly_enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+    nightly_video_target = Column(Integer, nullable=False, default=2, server_default="2")
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    ideas = relationship("ContentIdea", back_populates="channel")
+    contents = relationship("Content", back_populates="channel")
+
+
 class ContentIdea(Base):
     __tablename__ = "content_ideas"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel_id = Column(UUID(as_uuid=True), ForeignKey("channels.id", ondelete="RESTRICT"), nullable=True, index=True)
     title = Column(String, nullable=False)
     description = Column(String)
     topic = Column(String)
@@ -27,6 +66,7 @@ class ContentIdea(Base):
     source = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    channel = relationship("Channel", back_populates="ideas")
     contents = relationship("Content", back_populates="idea")
 
 class ContentBatch(Base):
@@ -46,6 +86,7 @@ class Content(Base):
     __tablename__ = "content"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     idea_id = Column(UUID(as_uuid=True), ForeignKey("content_ideas.id"), nullable=True)
+    channel_id = Column(UUID(as_uuid=True), ForeignKey("channels.id", ondelete="RESTRICT"), nullable=True, index=True)
     batch_id = Column(String, ForeignKey("content_batches.id"), nullable=True)
     title = Column(String)
     description = Column(String)
@@ -57,6 +98,7 @@ class Content(Base):
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    channel = relationship("Channel", back_populates="contents")
     idea = relationship("ContentIdea", back_populates="contents")
     batch = relationship("ContentBatch", back_populates="contents")
     research = relationship("Research", back_populates="content", uselist=False)
