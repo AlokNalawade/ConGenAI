@@ -26,6 +26,7 @@ async def create_idea(idea: ContentIdeaCreate, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=404, detail="Channel not found")
     db_idea = DBContentIdea(**idea.model_dump())
     db.add(db_idea)
+    await db.flush()
     if idea.channel_id is not None:
         topic = (idea.topic or idea.title).strip()
         normalized = " ".join(topic.casefold().split())[:300]
