@@ -30,8 +30,8 @@ WEIGHTS = {
 
 
 def normalize_topic(value: str) -> str:
-    value = re.sub(r"[^\w\s-]", " ", (value or "").casefold())
-    return " ".join(value.split())[:300]
+    # Match ChannelTopicHistory's phase-one normalization exactly.
+    return " ".join((value or "").casefold().split())[:300]
 
 
 def calculate_opportunity_score(scores: dict[str, float]) -> float:
