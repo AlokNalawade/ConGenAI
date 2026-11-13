@@ -22,6 +22,7 @@
                 <a href="#" id="nav-ideas" onclick="switchTab(this, 'ideas')"><i class="ri-lightbulb-line"></i> Ideas</a>
                 <a href="#" id="nav-pipeline" onclick="switchTab(this, 'pipeline')"><i class="ri-search-eye-line"></i> Inspector</a>
                 <a href="#" id="nav-videos" onclick="switchTab(this, 'videos')"><i class="ri-video-line"></i> Videos</a>
+                <a href="#" id="nav-review" onclick="switchTab(this, 'review')"><i class="ri-checkbox-circle-line"></i> Morning Review</a>
                 <a href="#" id="nav-settings" onclick="switchTab(this, 'settings')"><i class="ri-settings-4-line"></i> Settings</a>
             </nav>
         </aside>
@@ -42,6 +43,19 @@
                     </div>
                 </div>
             </header>
+
+            <!-- Morning human review queue -->
+            <section id="view-review" style="display:none; padding: 24px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
+                    <div>
+                        <h2 class="section-title" style="margin-bottom:6px;">Morning Review</h2>
+                        <p style="color:var(--text-muted);margin:0;">Only fully rendered videos awaiting your decision appear here. Nothing publishes automatically.</p>
+                    </div>
+                    <button class="btn btn-primary" onclick="loadReviewQueue()"><i class="ri-refresh-line"></i> Refresh queue</button>
+                </div>
+                <div id="review-summary" class="stats-grid" style="margin-bottom:20px;"></div>
+                <div id="review-groups" style="display:flex;flex-direction:column;gap:24px;"></div>
+            </section>
 
             <!-- TAB 1: DASHBOARD VIEW -->
             <div class="dashboard-content" id="view-dashboard">
