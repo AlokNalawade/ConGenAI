@@ -41,7 +41,6 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean(), server_default=sa.true(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
-        sa.UniqueConstraint("slug", name="uq_channels_slug"),
         sa.CheckConstraint(
             "nightly_video_target >= 1 AND nightly_video_target <= 20",
             name="ck_channels_nightly_video_target_range",
