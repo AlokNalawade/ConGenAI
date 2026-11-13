@@ -5,14 +5,14 @@ from typing import List
 import uuid
 
 from app.db.database import get_db
-from app.db.models import Content as DBContent, Asset as DBAsset, Script as DBScript
+from app.db.models import Content as DBContent, Asset as DBAsset, Script as DBScript, ContentIdea as DBContentIdea, Channel as DBChannel
 from app.models.schemas import Content, ContentCreate, ContentUpdate
 
 router = APIRouter()
 
 @router.post("/", response_model=Content)
 async def create_content(content: ContentCreate, db: AsyncSession = Depends(get_db)):
-    db_content = DBContent(**content.model_dump())
+    values = content.model_dump()\n    idea = await db.get(DBContentIdea, values.get("idea_id")) if values.get("idea_id") else None\n    if values.get("idea_id") and idea is None:\n        raise HTTPException(status_code=404, detail="Content idea not found")\n    if idea is not None:\n        if values.get("channel_id") is None:\n            values["channel_id"] = idea.channel_id\n        elif idea.channel_id is not None and values["channel_id"] != idea.channel_id:\n            raise HTTPException(status_code=422, detail="Content channel must match its idea channel")\n    if values.get("channel_id") is not None and await db.get(DBChannel, values["channel_id"]) is None:\n        raise HTTPException(status_code=404, detail="Channel not found")\n    db_content = DBContent(**values)
     db.add(db_content)
     await db.commit()
     await db.refresh(db_content)
