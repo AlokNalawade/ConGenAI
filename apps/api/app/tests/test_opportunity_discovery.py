@@ -30,7 +30,7 @@ def test_opportunity_score_is_weighted_and_bounded_by_input():
     assert calculate_opportunity_score(scores) == 25.0
 
 
-def test_topic_normalization_collapses_case_and_punctuation():
+def test_topic_normalization_collapses_case_and_whitespace():
     assert normalize_topic("  The  Strange: History! ") == "the strange: history!"
 
 
@@ -54,13 +54,9 @@ async def test_unknown_search_provider_fails_explicitly():
     with pytest.raises(SearchProviderError):
         await provider.search("test")
 
-
-
 def test_topic_normalization_matches_existing_channel_history_format():
     assert normalize_topic("The Mystery of Rome!") == "the mystery of rome!"
     assert normalize_topic("  THE   MYSTERY OF ROME! ") == "the mystery of rome!"
-
-
 
 def test_configured_source_domains_accepts_hostnames_and_urls():
     channel = SimpleNamespace(research_sources=[
