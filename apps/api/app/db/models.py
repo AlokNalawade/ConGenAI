@@ -49,6 +49,7 @@ class Channel(Base):
     ideas = relationship("ContentIdea", back_populates="channel")
     contents = relationship("Content", back_populates="channel")
     topic_history = relationship("ChannelTopicHistory", cascade="all, delete-orphan")
+    batches = relationship("ContentBatch", back_populates="channel")
 
 
 class ContentIdea(Base):
@@ -90,6 +91,7 @@ class ChannelTopicHistory(Base):
 class ContentBatch(Base):
     __tablename__ = "content_batches"
     id = Column(String, primary_key=True)
+    channel_id = Column(UUID(as_uuid=True), ForeignKey("channels.id", ondelete="RESTRICT"), nullable=True, index=True)
     topic = Column(String, nullable=False)
     requested_count = Column(Integer, default=1)
     status = Column(String, default="queued")
@@ -99,6 +101,7 @@ class ContentBatch(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
     contents = relationship("Content", back_populates="batch")
+    channel = relationship("Channel", back_populates="batches")
 
 class Content(Base):
     __tablename__ = "content"
