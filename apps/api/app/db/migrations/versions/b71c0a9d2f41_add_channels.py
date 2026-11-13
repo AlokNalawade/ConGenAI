@@ -59,6 +59,12 @@ def upgrade() -> None:
         "fk_content_channel_id_channels",
         "content", "channels", ["channel_id"], ["id"], ondelete="RESTRICT",
     )
+    op.execute("""
+        UPDATE content AS c
+        SET channel_id = i.channel_id
+        FROM content_ideas AS i
+        WHERE c.idea_id = i.id AND c.channel_id IS NULL AND i.channel_id IS NOT NULL
+    """)
     op.create_table(
         "channel_topic_history",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
