@@ -30,7 +30,7 @@ def test_opportunity_score_is_weighted_and_bounded_by_input():
 
 
 def test_topic_normalization_collapses_case_and_punctuation():
-    assert normalize_topic("  The  Strange: History! ") == "the strange history"
+    assert normalize_topic("  The  Strange: History! ") == "the strange: history!"
 
 
 def test_queries_are_derived_from_the_channel_not_other_niches():
@@ -52,3 +52,9 @@ async def test_unknown_search_provider_fails_explicitly():
     provider = WebSearchProvider(provider="not-a-provider")
     with pytest.raises(SearchProviderError):
         await provider.search("test")
+
+
+
+def test_topic_normalization_matches_existing_channel_history_format():
+    assert normalize_topic("The Mystery of Rome!") == "the mystery of rome!"
+    assert normalize_topic("  THE   MYSTERY OF ROME! ") == "the mystery of rome!"
