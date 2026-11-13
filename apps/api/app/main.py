@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from app.core.config import settings
-from app.api.v1 import ideas, content, research, scripts, scenes, assets, video, pipeline, experiments
+from app.api.v1 import ideas, content, research, scripts, scenes, assets, video, pipeline, experiments, channels
 
 
 @asynccontextmanager
@@ -59,6 +59,7 @@ def health_check():
     return {"status": "ok", "project": settings.PROJECT_NAME}
 
 
+app.include_router(channels.router, prefix=f"{settings.API_V1_STR}/channels", tags=["channels"])
 app.include_router(ideas.router, prefix=f"{settings.API_V1_STR}/ideas", tags=["ideas"])
 app.include_router(content.router, prefix=f"{settings.API_V1_STR}/content", tags=["content"])
 app.include_router(pipeline.router, prefix=f"{settings.API_V1_STR}/content/{{content_id}}", tags=["pipeline"])
