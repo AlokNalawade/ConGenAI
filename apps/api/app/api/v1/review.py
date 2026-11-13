@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
-from app.db.models import Asset, Channel, Content, Research
+from app.db.models import AgentRun, Asset, Channel, Content, Research
 from app.workflows.workflow_state import (
     InvalidWorkflowTransitionError,
     WorkflowState,
@@ -135,6 +135,16 @@ async def decide_review(
     else:
         target = WorkflowState.FAILED
 
+    # Keep a durable audit trail of the editorial decision and optional note.
+    db.add(AgentRun(
+        id=uuid.uuid4(),
+        content_id=content_id,
+        agent="HumanReview",
+        stage=f"editorial_{body.decision}",
+        status="completed",
+        error=body.note,
+        duration_seconds=0.0,
+    ))
     try:
         await update_workflow_state(db, content_id, target, force=False)
     except InvalidWorkflowTransitionError as exc:
