@@ -5,7 +5,7 @@ from typing import List
 import uuid
 
 from app.db.database import get_db
-from app.db.models import ContentIdea as DBContentIdea
+from app.db.models import ContentIdea as DBContentIdea, Channel as DBChannel, ChannelTopicHistory
 from app.models.schemas import ContentIdea, ContentIdeaCreate, ContentIdeaUpdate
 from app.services.llm_service import LLMService
 from app.core.config import settings
@@ -22,8 +22,25 @@ async def get_available_models():
 
 @router.post("/", response_model=ContentIdea)
 async def create_idea(idea: ContentIdeaCreate, db: AsyncSession = Depends(get_db)):
+    if idea.channel_id is not None and await db.get(DBChannel, idea.channel_id) is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
     db_idea = DBContentIdea(**idea.model_dump())
     db.add(db_idea)
+    await db.flush()
+    if idea.channel_id is not None:
+        topic = (idea.topic or idea.title).strip()
+        normalized = " ".join(topic.casefold().split())[:300]
+        existing = await db.execute(select(ChannelTopicHistory.id).where(
+            ChannelTopicHistory.channel_id == idea.channel_id,
+            ChannelTopicHistory.normalized_topic == normalized,
+        ))
+        if existing.scalar_one_or_none() is not None:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="This topic is already recorded for the channel")
+        db.add(ChannelTopicHistory(
+            channel_id=idea.channel_id, normalized_topic=normalized,
+            topic=topic, content_idea_id=db_idea.id,
+        ))
     await db.commit()
     await db.refresh(db_idea)
     return db_idea
@@ -33,9 +50,13 @@ async def create_idea(idea: ContentIdeaCreate, db: AsyncSession = Depends(get_db
 async def read_ideas(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
+    channel_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(DBContentIdea).offset(skip).limit(limit))
+    query = select(DBContentIdea)
+    if channel_id is not None:
+        query = query.where(DBContentIdea.channel_id == channel_id)
+    result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
 
@@ -55,8 +76,32 @@ async def update_idea(idea_id: uuid.UUID, idea: ContentIdeaUpdate, db: AsyncSess
     if db_idea is None:
         raise HTTPException(status_code=404, detail="Idea not found")
 
-    for key, value in idea.model_dump(exclude_unset=True).items():
+    updates = idea.model_dump(exclude_unset=True)
+    channel_id = updates.get("channel_id", db_idea.channel_id)
+    if channel_id is not None and await db.get(DBChannel, channel_id) is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if db_idea.channel_id is not None and channel_id != db_idea.channel_id:
+        raise HTTPException(status_code=422, detail="Channel ownership cannot be changed after an idea is assigned")
+    for key, value in updates.items():
         setattr(db_idea, key, value)
+
+    if db_idea.channel_id is not None and ("topic" in updates or "title" in updates):
+        topic = (updates.get("topic", db_idea.topic) or updates.get("title", db_idea.title) or "").strip()
+        normalized = " ".join(topic.casefold().split())[:300]
+        if topic:
+            existing = await db.execute(select(ChannelTopicHistory).where(
+                ChannelTopicHistory.channel_id == db_idea.channel_id,
+                ChannelTopicHistory.normalized_topic == normalized,
+            ))
+            history_entry = existing.scalar_one_or_none()
+            if history_entry is not None and history_entry.content_idea_id != db_idea.id:
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="This topic is already recorded for the channel")
+            if history_entry is None:
+                db.add(ChannelTopicHistory(
+                    channel_id=db_idea.channel_id, normalized_topic=normalized,
+                    topic=topic, content_idea_id=db_idea.id,
+                ))
 
     await db.commit()
     await db.refresh(db_idea)

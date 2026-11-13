@@ -5,27 +5,44 @@ from typing import List
 import uuid
 
 from app.db.database import get_db
-from app.db.models import Content as DBContent, Asset as DBAsset, Script as DBScript
+from app.db.models import Content as DBContent, Asset as DBAsset, Script as DBScript, ContentIdea as DBContentIdea, Channel as DBChannel
 from app.models.schemas import Content, ContentCreate, ContentUpdate
 
 router = APIRouter()
 
 @router.post("/", response_model=Content)
 async def create_content(content: ContentCreate, db: AsyncSession = Depends(get_db)):
-    db_content = DBContent(**content.model_dump())
+    values = content.model_dump()
+    idea = await db.get(DBContentIdea, values.get("idea_id")) if values.get("idea_id") else None
+    if values.get("idea_id") and idea is None:
+        raise HTTPException(status_code=404, detail="Content idea not found")
+    if idea is not None:
+        if values.get("channel_id") is None:
+            values["channel_id"] = idea.channel_id
+        elif idea.channel_id is not None and values["channel_id"] != idea.channel_id:
+            raise HTTPException(status_code=422, detail="Content channel must match its idea channel")
+    if values.get("channel_id") is not None and await db.get(DBChannel, values["channel_id"]) is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    db_content = DBContent(**values)
     db.add(db_content)
     await db.commit()
     await db.refresh(db_content)
     return db_content
 
 @router.get("/", response_model=List[Content])
-async def read_contents(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(DBContent).offset(skip).limit(limit))
+async def read_contents(
+    skip: int = 0, limit: int = 100, channel_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(DBContent)
+    if channel_id is not None:
+        query = query.where(DBContent.channel_id == channel_id)
+    result = await db.execute(query.offset(skip).limit(limit))
     contents = result.scalars().all()
     return contents
 
 @router.get("/videos")
-async def list_videos(db: AsyncSession = Depends(get_db)):
+async def list_videos(channel_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)):
     """
     Return all content that has a final video asset, with metadata for the gallery view.
     Single query per table — no N+1. Includes: video path, quality score, script hook,
@@ -34,11 +51,10 @@ async def list_videos(db: AsyncSession = Depends(get_db)):
     VIDEO_STATUSES = ("awaiting_approval", "approved", "published", "completed")
 
     # All content in terminal/ready states, newest first
-    content_res = await db.execute(
-        select(DBContent)
-        .filter(DBContent.status.in_(VIDEO_STATUSES))
-        .order_by(DBContent.created_at.desc())
-    )
+    content_query = select(DBContent).filter(DBContent.status.in_(VIDEO_STATUSES))
+    if channel_id is not None:
+        content_query = content_query.filter(DBContent.channel_id == channel_id)
+    content_res = await db.execute(content_query.order_by(DBContent.created_at.desc()))
     all_content = content_res.scalars().all()
     if not all_content:
         return []
@@ -85,6 +101,7 @@ async def list_videos(db: AsyncSession = Depends(get_db)):
             continue  # skip content without a video asset
         results.append({
             "id": cid,
+            "channel_id": str(c.channel_id) if c.channel_id else None,
             "title": c.title,
             "status": c.status,
             "platform": c.platform,
@@ -114,6 +131,19 @@ async def update_content(content_id: uuid.UUID, content: ContentUpdate, db: Asyn
         raise HTTPException(status_code=404, detail="Content not found")
     
     update_data = content.model_dump(exclude_unset=True)
+    idea_id = update_data.get("idea_id", db_content.idea_id)
+    idea = await db.get(DBContentIdea, idea_id) if idea_id else None
+    if idea_id and idea is None:
+        raise HTTPException(status_code=404, detail="Content idea not found")
+    channel_id = update_data.get("channel_id", db_content.channel_id)
+    if idea is not None and idea.channel_id is not None:
+        if channel_id is None:
+            channel_id = idea.channel_id
+            update_data["channel_id"] = channel_id
+        elif channel_id != idea.channel_id:
+            raise HTTPException(status_code=422, detail="Content channel must match its idea channel")
+    if channel_id is not None and await db.get(DBChannel, channel_id) is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
     for key, value in update_data.items():
         setattr(db_content, key, value)
         
