@@ -17,7 +17,7 @@ audience metrics, search volume, revenue, advertiser rates, or source details.
 
 The channel niche and boundaries are binding. Reject ideas outside the channel's
 niche, excluded topics, or audience. A trend is not automatically monetizable.
-Score each supplied candidate from 0 to 100:
+Monetization fit is an editorial-fit estimate, NOT a revenue, CPM, RPM or earnings prediction. If the supplied channel monetization strategy or evidence is weak, lower confidence and flag uncertainty.\nScore each supplied candidate from 0 to 100:
 - audience_demand: evidence-backed likely audience interest
 - monetization_fit: plausible fit with the channel's stated monetization strategy
 - competition_gap: opportunity for a differentiated angle (100 means strong gap)
