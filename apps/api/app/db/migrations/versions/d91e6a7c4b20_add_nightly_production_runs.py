@@ -35,6 +35,13 @@ def upgrade() -> None:
         "ix_nightly_production_runs_created",
         "nightly_production_runs", ["created_at"],
     )
+    op.create_index(
+        "ix_one_active_nightly_run",
+        "nightly_production_runs",
+        ["status"],
+        unique=True,
+        postgresql_where=sa.text("status IN ('running', 'dispatching')"),
+    )
     op.create_table(
         "nightly_channel_runs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
@@ -65,5 +72,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_nightly_channel_runs_channel_status", table_name="nightly_channel_runs")
     op.drop_table("nightly_channel_runs")
+    op.drop_index("ix_one_active_nightly_run", table_name="nightly_production_runs")
     op.drop_index("ix_nightly_production_runs_created", table_name="nightly_production_runs")
     op.drop_table("nightly_production_runs")
