@@ -141,7 +141,7 @@ class OpportunityDiscoveryService:
             "monetization_strategy": channel.monetization_strategy,
             "content_format": channel.content_format,
         }
-        assessments = []
+        valid_assessments = []
         # Chunk the candidates so local models are not asked to score a huge prompt.
         for offset in range(0, len(raw_results), 8):
             chunk = raw_results[offset:offset + 8]
@@ -150,15 +150,14 @@ class OpportunityDiscoveryService:
                 for index, item in enumerate(chunk)
             ]
             batch = await self.agent.assess(channel_data, indexed)
-            assessments.extend(batch.assessments)
-
-        valid_assessments = []
-        for assessment in assessments:
-            if assessment.source_index < 0 or assessment.source_index >= len(raw_results):
-                continue
-            if assessment.niche_fit < 60:
-                continue
-            valid_assessments.append(assessment)
+            # Reject hallucinated or cross-chunk indices instead of attaching an
+            # assessment to a source that was not included in that model request.
+            for assessment in batch.assessments:
+                if not offset <= assessment.source_index < offset + len(chunk):
+                    continue
+                if assessment.niche_fit < 60:
+                    continue
+                valid_assessments.append(assessment)
 
         history_result = await db.execute(
             select(ChannelTopicHistory.normalized_topic).where(
@@ -168,10 +167,12 @@ class OpportunityDiscoveryService:
         used_topics = set(history_result.scalars().all())
 
         scored = []
+        seen_scored_topics = set()
         for assessment in valid_assessments:
             normalized = normalize_topic(assessment.topic or assessment.title)
-            if not normalized or normalized in used_topics:
+            if not normalized or normalized in used_topics or normalized in seen_scored_topics:
                 continue
+            seen_scored_topics.add(normalized)
             score_parts = {
                 key: getattr(assessment, key)
                 for key in WEIGHTS
@@ -243,7 +244,7 @@ class OpportunityDiscoveryService:
                 opportunity.rationale = assessment.rationale
                 opportunity.risk_flags = assessment.risk_flags
                 opportunity.last_seen_at = datetime.now(timezone.utc)
-                if opportunity.status not in ("selected", "converted"):
+                if opportunity.status not in ("selected", "converted", "rejected", "archived"):
                     opportunity.status = "discovered"
             persisted.append((opportunity, item))
 
@@ -253,7 +254,7 @@ class OpportunityDiscoveryService:
         for opportunity, item in persisted:
             if len(selected) >= target:
                 break
-            if opportunity.status in ("selected", "converted"):
+            if opportunity.status in ("selected", "converted", "rejected", "archived"):
                 continue
             assessment = item["assessment"]
             idea = ContentIdea(
