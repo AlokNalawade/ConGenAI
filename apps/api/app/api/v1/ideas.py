@@ -89,17 +89,19 @@ async def update_idea(idea_id: uuid.UUID, idea: ContentIdeaUpdate, db: AsyncSess
         topic = (updates.get("topic", db_idea.topic) or updates.get("title", db_idea.title) or "").strip()
         normalized = " ".join(topic.casefold().split())[:300]
         if topic:
-            existing = await db.execute(select(ChannelTopicHistory.id).where(
+            existing = await db.execute(select(ChannelTopicHistory).where(
                 ChannelTopicHistory.channel_id == db_idea.channel_id,
                 ChannelTopicHistory.normalized_topic == normalized,
             ))
-            if existing.scalar_one_or_none() is not None:
+            history_entry = existing.scalar_one_or_none()
+            if history_entry is not None and history_entry.content_idea_id != db_idea.id:
                 await db.rollback()
                 raise HTTPException(status_code=409, detail="This topic is already recorded for the channel")
-            db.add(ChannelTopicHistory(
-                channel_id=db_idea.channel_id, normalized_topic=normalized,
-                topic=topic, content_idea_id=db_idea.id,
-            ))
+            if history_entry is None:
+                db.add(ChannelTopicHistory(
+                    channel_id=db_idea.channel_id, normalized_topic=normalized,
+                    topic=topic, content_idea_id=db_idea.id,
+                ))
 
     await db.commit()
     await db.refresh(db_idea)
