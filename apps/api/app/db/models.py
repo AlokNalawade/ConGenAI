@@ -125,6 +125,12 @@ class NightlyProductionRun(Base):
     __tablename__ = "nightly_production_runs"
     __table_args__ = (
         Index("ix_nightly_production_runs_created", "created_at"),
+        Index(
+            "ix_one_active_nightly_run",
+            "status",
+            unique=True,
+            postgresql_where="status IN ('running', 'dispatching')",
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
