@@ -307,13 +307,12 @@ class NightlyProductionOrchestrator:
                 completed = sum(1 for state in states.values() if state == "completed")
                 failed = sum(1 for state in states.values() if state in ("failed", "cancelled"))
                 active = any(state in ("queued", "dispatching", "running", "resuming") for state in states.values())
-                channel_run.failed_count = max(channel_run.failed_count, failed)
+                missing_or_unselected = max(0, channel_run.target_count - len(channel_run.job_ids))
+                channel_run.failed_count = max(channel_run.failed_count, failed + missing_or_unselected)
                 if active:
                     channel_run.status = "running"
-                elif failed and completed:
-                    channel_run.status = "partial"
-                elif failed:
-                    channel_run.status = "failed"
+                elif failed or missing_or_unselected:
+                    channel_run.status = "partial" if completed or len(jobs) else "failed"
                 elif len(jobs) == len(channel_run.job_ids) and completed == len(channel_run.job_ids):
                     channel_run.status = "completed"
                 elif len(jobs) < len(channel_run.job_ids):
