@@ -120,6 +120,71 @@ class ChannelOpportunity(Base):
     channel = relationship("Channel", back_populates="opportunities")
 
 
+class NightlyProductionRun(Base):
+    """One user-triggered nightly factory execution across enabled channels."""
+    __tablename__ = "nightly_production_runs"
+    __table_args__ = (
+        Index("ix_nightly_production_runs_created", "created_at"),
+        Index(
+            "ix_one_active_nightly_run",
+            "status",
+            unique=True,
+            postgresql_where="status IN ('running', 'dispatching')",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    status = Column(String(32), nullable=False, default="running")
+    idempotency_key = Column(String(160), nullable=True, unique=True)
+    requested_total = Column(Integer, nullable=False, default=0)
+    queued_total = Column(Integer, nullable=False, default=0)
+    failed_total = Column(Integer, nullable=False, default=0)
+    config_json = Column(JSON, nullable=False, default=dict)
+    error = Column(String, nullable=True)
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    channel_runs = relationship(
+        "NightlyChannelRun", back_populates="nightly_run",
+        cascade="all, delete-orphan", order_by="NightlyChannelRun.created_at",
+    )
+
+
+class NightlyChannelRun(Base):
+    """Per-channel discovery and production allocation within a nightly run."""
+    __tablename__ = "nightly_channel_runs"
+    __table_args__ = (
+        UniqueConstraint("nightly_run_id", "channel_id", name="uq_nightly_run_channel"),
+        Index("ix_nightly_channel_runs_channel_status", "channel_id", "status"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    nightly_run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("nightly_production_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    channel_id = Column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False,
+    )
+    target_count = Column(Integer, nullable=False)
+    selected_count = Column(Integer, nullable=False, default=0)
+    queued_count = Column(Integer, nullable=False, default=0)
+    failed_count = Column(Integer, nullable=False, default=0)
+    status = Column(String(32), nullable=False, default="pending")
+    discovery_json = Column(JSON, nullable=True)
+    content_ids = Column(JSON, nullable=False, default=list)
+    job_ids = Column(JSON, nullable=False, default=list)
+    error = Column(String, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    nightly_run = relationship("NightlyProductionRun", back_populates="channel_runs")
+    channel = relationship("Channel")
+
+
 class ContentBatch(Base):
     __tablename__ = "content_batches"
     id = Column(String, primary_key=True)
