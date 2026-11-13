@@ -1,10 +1,71 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import uuid
 
+# --- Channel Schemas ---
+class ChannelBase(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    slug: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    niche: str = Field(min_length=2, max_length=160)
+    description: Optional[str] = None
+    target_audience: Optional[str] = None
+    language: str = Field(default="en", min_length=2, max_length=16)
+    platforms: List[str] = Field(default_factory=list)
+    content_format: str = "short_form_video"
+    target_duration_min: Optional[int] = Field(default=None, ge=1, le=3600)
+    target_duration_max: Optional[int] = Field(default=None, ge=1, le=3600)
+    brand_voice: Optional[str] = None
+    visual_style: Optional[str] = None
+    voice_profile: Optional[str] = None
+    topic_boundaries: List[str] = Field(default_factory=list)
+    excluded_topics: List[str] = Field(default_factory=list)
+    research_sources: List[Dict[str, Any]] = Field(default_factory=list)
+    monetization_strategy: Dict[str, Any] = Field(default_factory=dict)
+    nightly_enabled: bool = True
+    nightly_video_target: int = Field(default=2, ge=1, le=20)
+    is_active: bool = True
+
+
+class ChannelCreate(ChannelBase):
+    pass
+
+
+class ChannelUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    slug: Optional[str] = Field(default=None, min_length=2, max_length=80, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    niche: Optional[str] = Field(default=None, min_length=2, max_length=160)
+    description: Optional[str] = None
+    target_audience: Optional[str] = None
+    language: Optional[str] = Field(default=None, min_length=2, max_length=16)
+    platforms: Optional[List[str]] = None
+    content_format: Optional[str] = None
+    target_duration_min: Optional[int] = Field(default=None, ge=1, le=3600)
+    target_duration_max: Optional[int] = Field(default=None, ge=1, le=3600)
+    brand_voice: Optional[str] = None
+    visual_style: Optional[str] = None
+    voice_profile: Optional[str] = None
+    topic_boundaries: Optional[List[str]] = None
+    excluded_topics: Optional[List[str]] = None
+    research_sources: Optional[List[Dict[str, Any]]] = None
+    monetization_strategy: Optional[Dict[str, Any]] = None
+    nightly_enabled: Optional[bool] = None
+    nightly_video_target: Optional[int] = Field(default=None, ge=1, le=20)
+    is_active: Optional[bool] = None
+
+
+class Channel(ChannelBase):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 # --- Content Idea Schemas ---
 class ContentIdeaBase(BaseModel):
+    channel_id: Optional[uuid.UUID] = None
     title: str
     description: Optional[str] = None
     topic: Optional[str] = None
@@ -33,6 +94,7 @@ class ContentIdea(ContentIdeaBase):
 # --- Content Schemas ---
 class ContentBase(BaseModel):
     idea_id: Optional[uuid.UUID] = None
+    channel_id: Optional[uuid.UUID] = None
     title: Optional[str] = None
     description: Optional[str] = None
     content_type: Optional[str] = None
