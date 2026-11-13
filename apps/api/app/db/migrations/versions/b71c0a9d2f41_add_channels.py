@@ -60,9 +60,33 @@ def upgrade() -> None:
         "fk_content_channel_id_channels",
         "content", "channels", ["channel_id"], ["id"], ondelete="RESTRICT",
     )
+    op.create_table(
+        "channel_topic_history",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column("channel_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("normalized_topic", sa.String(length=300), nullable=False),
+        sa.Column("topic", sa.String(), nullable=False),
+        sa.Column("content_idea_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("content_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("first_seen_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.ForeignKeyConstraint(["channel_id"], ["channels.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["content_idea_id"], ["content_ideas.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["content_id"], ["content.id"], ondelete="SET NULL"),
+        sa.UniqueConstraint("channel_id", "normalized_topic", name="uq_channel_topic_history_topic"),
+    )
+    op.create_index("ix_channel_topic_history_channel_seen", "channel_topic_history", ["channel_id", "first_seen_at"])
+    op.execute("""
+        INSERT INTO channel_topic_history (id, channel_id, normalized_topic, topic, content_idea_id)
+        SELECT gen_random_uuid(), channel_id, left(lower(trim(coalesce(topic, title))), 300),
+               coalesce(topic, title), id
+        FROM content_ideas WHERE channel_id IS NOT NULL
+        ON CONFLICT (channel_id, normalized_topic) DO NOTHING
+    """)
 
 
 def downgrade() -> None:
+    op.drop_index("ix_channel_topic_history_channel_seen", table_name="channel_topic_history")
+    op.drop_table("channel_topic_history")
     op.drop_constraint("fk_content_channel_id_channels", "content", type_="foreignkey")
     op.drop_index("ix_content_channel_id", table_name="content")
     op.drop_column("content", "channel_id")
