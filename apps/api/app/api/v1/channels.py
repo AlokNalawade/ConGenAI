@@ -64,6 +64,30 @@ async def nightly_summary(db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.get("/{channel_id}/topic-history")
+async def list_channel_topic_history(
+    channel_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    if await db.get(DBChannel, channel_id) is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    from app.db.models import ChannelTopicHistory
+    result = await db.execute(
+        select(ChannelTopicHistory)
+        .where(ChannelTopicHistory.channel_id == channel_id)
+        .order_by(ChannelTopicHistory.first_seen_at.desc())
+        .offset(skip).limit(limit)
+    )
+    return [
+        {"id": str(item.id), "topic": item.topic, "normalized_topic": item.normalized_topic,
+         "content_idea_id": str(item.content_idea_id) if item.content_idea_id else None,
+         "first_seen_at": item.first_seen_at}
+        for item in result.scalars().all()
+    ]
+
+
 @router.get("/{channel_id}", response_model=Channel)
 async def get_channel(channel_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     channel = await db.get(DBChannel, channel_id)
