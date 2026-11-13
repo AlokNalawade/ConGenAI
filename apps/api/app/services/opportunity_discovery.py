@@ -1,7 +1,6 @@
 """Channel-scoped research, scoring and selection of content opportunities."""
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -17,7 +16,7 @@ from app.db.models import (
     ChannelTopicHistory,
     ContentIdea,
 )
-from app.services.search_provider import SearchProviderError, WebSearchProvider
+from app.services.search_provider import WebSearchProvider
 
 
 WEIGHTS = {
@@ -66,6 +65,22 @@ def build_search_queries(channel: Channel, year: int | None = None) -> list[str]
     return list(dict.fromkeys(q.strip() for q in queries if q.strip()))[:7]
 
 
+def configured_source_domains(channel: Channel) -> list[str]:
+    """Read optional source restrictions from a channel's research_sources profile."""
+    domains: list[str] = []
+    for source in (channel.research_sources or []):
+        if not isinstance(source, dict) or source.get("enabled", True) is False:
+            continue
+        candidate = source.get("domain") or source.get("url")
+        if not candidate:
+            continue
+        parsed = urlparse(str(candidate) if "://" in str(candidate) else f"https://{candidate}")
+        host = (parsed.hostname or "").lower()
+        if host and host not in domains:
+            domains.append(host)
+    return domains[:10]
+
+
 def _source_allowed(candidate: dict[str, Any]) -> bool:
     parsed = urlparse(str(candidate.get("url") or ""))
     return parsed.scheme in ("http", "https") and bool(parsed.netloc) and bool(candidate.get("title"))
@@ -101,9 +116,10 @@ class OpportunityDiscoveryService:
         raw_results: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
         queries = build_search_queries(channel)
+        source_domains = configured_source_domains(channel)
         per_query = max(5, min(12, (candidate_limit + len(queries) - 1) // len(queries)))
         for query in queries:
-            results = await self.search_provider.search(query, limit=per_query)
+            results = await self.search_provider.search(query, limit=per_query, domains=source_domains or None)
             for item in results:
                 if not _source_allowed(item):
                     continue
