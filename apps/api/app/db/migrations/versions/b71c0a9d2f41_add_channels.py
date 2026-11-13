@@ -47,6 +47,9 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_channels_slug", "channels", ["slug"], unique=True)
+    op.add_column("content_batches", sa.Column("channel_id", postgresql.UUID(as_uuid=True), nullable=True))
+    op.create_index("ix_content_batches_channel_id", "content_batches", ["channel_id"])
+    op.create_foreign_key("fk_content_batches_channel_id_channels", "content_batches", "channels", ["channel_id"], ["id"], ondelete="RESTRICT")
     op.add_column("content_ideas", sa.Column("channel_id", postgresql.UUID(as_uuid=True), nullable=True))
     op.create_index("ix_content_ideas_channel_id", "content_ideas", ["channel_id"])
     op.create_foreign_key(
@@ -98,5 +101,8 @@ def downgrade() -> None:
     op.drop_constraint("fk_content_ideas_channel_id_channels", "content_ideas", type_="foreignkey")
     op.drop_index("ix_content_ideas_channel_id", table_name="content_ideas")
     op.drop_column("content_ideas", "channel_id")
+    op.drop_constraint("fk_content_batches_channel_id_channels", "content_batches", type_="foreignkey")
+    op.drop_index("ix_content_batches_channel_id", table_name="content_batches")
+    op.drop_column("content_batches", "channel_id")
     op.drop_index("ix_channels_slug", table_name="channels")
     op.drop_table("channels")
