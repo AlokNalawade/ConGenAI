@@ -334,3 +334,13 @@ select option { background: var(--bg-dark); }
     border-radius: 10px;
     font-weight: 700;
 }
+
+
+/* Morning Review responsive layout */
+#view-review .review-video-card video { object-fit: contain; }
+#view-review details summary { cursor: pointer; color: #a29bfe; }
+#view-review button:disabled { opacity: .55; cursor: wait; }
+@media (max-width: 720px) {
+    #view-review { padding: 14px !important; }
+    #view-review .stats-grid { grid-template-columns: 1fr; }
+}
