@@ -6,6 +6,7 @@ from app.services.opportunity_discovery import (
     WEIGHTS,
     build_search_queries,
     calculate_opportunity_score,
+    configured_source_domains,
     normalize_topic,
 )
 from app.services.search_provider import SearchProviderError, WebSearchProvider
@@ -58,3 +59,14 @@ async def test_unknown_search_provider_fails_explicitly():
 def test_topic_normalization_matches_existing_channel_history_format():
     assert normalize_topic("The Mystery of Rome!") == "the mystery of rome!"
     assert normalize_topic("  THE   MYSTERY OF ROME! ") == "the mystery of rome!"
+
+
+
+def test_configured_source_domains_accepts_hostnames_and_urls():
+    channel = SimpleNamespace(research_sources=[
+        {"domain": "history.example"},
+        {"url": "https://archive.example/articles"},
+        {"url": "javascript:alert(1)"},
+        {"domain": "history.example"},
+    ])
+    assert configured_source_domains(channel) == ["history.example", "archive.example"]
