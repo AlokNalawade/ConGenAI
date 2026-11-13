@@ -23,7 +23,7 @@ function switchTab(linkEl, tabName) {
         if (navEl) navEl.classList.add('active');
     }
 
-    const views = ['dashboard', 'studio', 'ideas', 'pipeline', 'videos', 'settings'];
+    const views = ['dashboard', 'studio', 'ideas', 'pipeline', 'videos', 'review', 'settings'];
     views.forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) {
@@ -41,6 +41,8 @@ function switchTab(linkEl, tabName) {
         loadIdeasView();
     } else if (tabName === 'videos') {
         loadVideosView();
+    } else if (tabName === 'review') {
+        loadReviewQueue();
     }
 }
 
@@ -1512,3 +1514,161 @@ async function studioTriggerAction(action) {
     }
 }
 
+
+
+// ── Morning human review queue ────────────────────────────────────────────
+async function loadReviewQueue() {
+    const groups = document.getElementById('review-groups');
+    const summary = document.getElementById('review-summary');
+    if (!groups || !summary) return;
+    groups.innerHTML = '<div class="glass" style="padding:24px;color:var(--text-muted);">Loading completed renders awaiting your review...</div>';
+    try {
+        const response = await fetch(`${API_BASE}/review/queue`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        summary.innerHTML = `
+            <div class="stat-card glass"><div class="stat-info"><h3>Ready for review</h3><h2>${data.count || 0}</h2></div></div>
+            <div class="stat-card glass"><div class="stat-info"><h3>Channels</h3><h2>${(data.channels || []).length}</h2></div></div>
+            <div class="stat-card glass"><div class="stat-info"><h3>Auto-publishing</h3><h2 style="font-size:20px;color:#00b894;">OFF</h2></div></div>`;
+        if (!data.videos || data.videos.length === 0) {
+            groups.innerHTML = '<div class="glass" style="padding:36px;text-align:center;"><h3>No videos awaiting approval</h3><p style="color:var(--text-muted);">Completed videos will appear here after rendering and quality checks.</p></div>';
+            return;
+        }
+        const byChannel = new Map();
+        data.videos.forEach(video => {
+            const channel = video.channel || {id:'unassigned',name:'Unassigned',niche:''};
+            if (!byChannel.has(channel.id)) byChannel.set(channel.id, {channel, videos:[]});
+            byChannel.get(channel.id).videos.push(video);
+        });
+        groups.innerHTML = '';
+        byChannel.forEach(group => {
+            const section = document.createElement('section');
+            section.className = 'glass';
+            section.style.cssText = 'padding:20px;border-radius:16px;';
+            const heading = document.createElement('div');
+            heading.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;';
+            const title = document.createElement('div');
+            title.innerHTML = `<h3 style="margin:0 0 4px;">${escapeHtml(group.channel.name)}</h3><span style="color:var(--text-muted);font-size:12px;">${escapeHtml(group.channel.niche || '')}</span>`;
+            const count = document.createElement('span');
+            count.className = 'tag tag-platform';
+            count.textContent = `${group.videos.length} awaiting approval`;
+            heading.append(title,count);
+            section.appendChild(heading);
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;';
+            group.videos.forEach(video => grid.appendChild(renderReviewCard(video)));
+            section.appendChild(grid);
+            groups.appendChild(section);
+        });
+    } catch (error) {
+        groups.innerHTML = `<div style="color:#ff7675;padding:20px;">Unable to load review queue: ${escapeHtml(error.message)}</div>`;
+    }
+}
+
+function renderReviewCard(video) {
+    const card = document.createElement('article');
+    card.className = 'glass';
+    card.style.cssText = 'padding:14px;border-radius:14px;min-width:0;';
+    const player = document.createElement('video');
+    player.controls = true;
+    player.playsInline = true;
+    player.preload = 'metadata';
+    player.style.cssText = 'width:100%;max-height:360px;background:#000;border-radius:10px;margin-bottom:12px;';
+    player.src = getAssetUrl(video.video?.path);
+    card.appendChild(player);
+
+    const title = document.createElement('h3');
+    title.textContent = video.title || 'Untitled video';
+    title.style.cssText = 'font-size:16px;margin:0 0 6px;';
+    card.appendChild(title);
+    const meta = document.createElement('p');
+    meta.style.cssText = 'font-size:12px;color:var(--text-muted);margin:0 0 10px;';
+    const score = Number.isFinite(video.quality_score) ? video.quality_score : 'Not supplied';
+    meta.textContent = `${video.platform || 'Video'} · Quality score: ${score}${video.target_duration ? ' · ' + video.target_duration + ' sec target' : ''}`;
+    card.appendChild(meta);
+
+    if (video.description) {
+        const desc = document.createElement('p');
+        desc.textContent = video.description;
+        desc.style.cssText = 'font-size:13px;line-height:1.5;margin:0 0 12px;';
+        card.appendChild(desc);
+    }
+    if (video.research) {
+        const details = document.createElement('details');
+        details.style.cssText = 'margin:10px 0 14px;font-size:12px;color:var(--text-muted);';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Research evidence & warnings';
+        summary.style.cursor = 'pointer';
+        details.appendChild(summary);
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:10px 0;line-height:1.5;';
+        const research = document.createElement('p');
+        research.textContent = video.research.summary || 'No research summary stored.';
+        body.appendChild(research);
+        (video.research.warnings || []).forEach(warning => {
+            const p = document.createElement('p');
+            p.style.color = '#fdcb6e';
+            p.textContent = 'Warning: ' + (typeof warning === 'string' ? warning : JSON.stringify(warning));
+            body.appendChild(p);
+        });
+        (video.research.sources || []).forEach(source => {
+            const url = typeof source === 'string' ? source : source.url;
+            if (url && /^https?:\/\//i.test(url)) {
+                const a = document.createElement('a');
+                a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+                a.textContent = typeof source === 'string' ? url : (source.title || url);
+                a.style.cssText = 'display:block;margin:4px 0;color:#a29bfe;';
+                body.appendChild(a);
+            }
+        });
+        details.appendChild(body);
+        card.appendChild(details);
+    }
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+    [
+        ['approve','Approve','linear-gradient(135deg,#00b894,#00cec9)'],
+        ['revise','Request revision','rgba(162,155,254,.2)'],
+        ['reject','Reject','rgba(214,48,49,.2)']
+    ].forEach(([decision,label,bg]) => {
+        const button = document.createElement('button');
+        button.className = 'btn-sm btn-action';
+        button.textContent = label;
+        button.style.background = bg;
+        button.addEventListener('click', () => submitReviewDecision(video.id, decision, button));
+        actions.appendChild(button);
+    });
+    card.appendChild(actions);
+    return card;
+}
+
+async function submitReviewDecision(contentId, decision, button) {
+    const note = decision === 'approve' ? '' : (window.prompt(
+        decision === 'revise' ? 'What should be changed?' : 'Why are you rejecting this video?',
+        ''
+    ) || '');
+    if (decision !== 'approve' && !note.trim()) return;
+    const confirmation = decision === 'approve'
+        ? 'Approve this video? This does not publish it.'
+        : decision === 'revise' ? 'Send this video back for revision?' : 'Reject this video?';
+    if (!window.confirm(confirmation)) return;
+    button.disabled = true;
+    try {
+        const response = await fetch(`${API_BASE}/review/${contentId}/decision`, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({decision,note})
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
+        alert(decision === 'approve'
+            ? 'Approved. It is not published; publishing remains a separate step.'
+            : 'Review decision saved.');
+        await loadReviewQueue();
+        await fetchPipeline();
+    } catch (error) {
+        alert(`Could not save decision: ${error.message}`);
+        button.disabled = false;
+    }
+}
