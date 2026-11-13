@@ -50,6 +50,7 @@ class Channel(Base):
     contents = relationship("Content", back_populates="channel")
     topic_history = relationship("ChannelTopicHistory", cascade="all, delete-orphan")
     batches = relationship("ContentBatch", back_populates="channel")
+    opportunities = relationship("ChannelOpportunity", back_populates="channel", cascade="all, delete-orphan")
 
 
 class ContentIdea(Base):
@@ -86,6 +87,37 @@ class ChannelTopicHistory(Base):
     content_idea_id = Column(UUID(as_uuid=True), ForeignKey("content_ideas.id", ondelete="SET NULL"), nullable=True)
     content_id = Column(UUID(as_uuid=True), ForeignKey("content.id", ondelete="SET NULL"), nullable=True)
     first_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ChannelOpportunity(Base):
+    """Evidence-backed editorial candidate, isolated to one channel."""
+    __tablename__ = "channel_opportunities"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "normalized_topic", name="uq_channel_opportunity_topic"),
+        Index("ix_channel_opportunities_channel_score", "channel_id", "score_total"),
+        Index("ix_channel_opportunities_channel_status", "channel_id", "status"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel_id = Column(UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
+    content_idea_id = Column(UUID(as_uuid=True), ForeignKey("content_ideas.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(500), nullable=False)
+    normalized_topic = Column(String(300), nullable=False)
+    description = Column(String, nullable=True)
+    content_angle = Column(String, nullable=True)
+    source_evidence = Column(JSON, nullable=False, default=list)
+    score_breakdown = Column(JSON, nullable=False, default=dict)
+    score_total = Column(Float, nullable=False, default=0.0)
+    confidence = Column(Integer, nullable=False, default=0)
+    rationale = Column(String, nullable=True)
+    risk_flags = Column(JSON, nullable=False, default=list)
+    status = Column(String(32), nullable=False, default="discovered")
+    first_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    selected_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    channel = relationship("Channel", back_populates="opportunities")
 
 
 class ContentBatch(Base):
