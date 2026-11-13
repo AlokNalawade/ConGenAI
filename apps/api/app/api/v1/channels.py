@@ -106,6 +106,9 @@ async def update_channel(
     if channel is None:
         raise HTTPException(status_code=404, detail="Channel not found")
     values = updates.model_dump(exclude_unset=True)
+    for required_field in ("name", "slug", "niche", "language", "content_format", "nightly_enabled", "nightly_video_target", "is_active"):
+        if required_field in values and values[required_field] is None:
+            raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
     minimum = values.get("target_duration_min", channel.target_duration_min)
     maximum = values.get("target_duration_max", channel.target_duration_max)
     if minimum is not None and maximum is not None and minimum > maximum:
