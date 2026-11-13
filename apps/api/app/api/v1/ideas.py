@@ -80,8 +80,26 @@ async def update_idea(idea_id: uuid.UUID, idea: ContentIdeaUpdate, db: AsyncSess
     channel_id = updates.get("channel_id", db_idea.channel_id)
     if channel_id is not None and await db.get(DBChannel, channel_id) is None:
         raise HTTPException(status_code=404, detail="Channel not found")
+    if db_idea.channel_id is not None and channel_id != db_idea.channel_id:
+        raise HTTPException(status_code=422, detail="Channel ownership cannot be changed after an idea is assigned")
     for key, value in updates.items():
         setattr(db_idea, key, value)
+
+    if db_idea.channel_id is not None and ("topic" in updates or "title" in updates):
+        topic = (updates.get("topic", db_idea.topic) or updates.get("title", db_idea.title) or "").strip()
+        normalized = " ".join(topic.casefold().split())[:300]
+        if topic:
+            existing = await db.execute(select(ChannelTopicHistory.id).where(
+                ChannelTopicHistory.channel_id == db_idea.channel_id,
+                ChannelTopicHistory.normalized_topic == normalized,
+            ))
+            if existing.scalar_one_or_none() is not None:
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="This topic is already recorded for the channel")
+            db.add(ChannelTopicHistory(
+                channel_id=db_idea.channel_id, normalized_topic=normalized,
+                topic=topic, content_idea_id=db_idea.id,
+            ))
 
     await db.commit()
     await db.refresh(db_idea)
