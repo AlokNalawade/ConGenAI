@@ -18,6 +18,28 @@ class ResearchResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class OpportunityAssessment(BaseModel):
+    source_index: int = Field(..., ge=0)
+    title: str = Field(..., min_length=3, max_length=500)
+    topic: str = Field(..., min_length=2, max_length=300)
+    description: str = Field(default="", max_length=3000)
+    content_angle: str = Field(default="", max_length=1500)
+    audience_demand: int = Field(..., ge=0, le=100)
+    monetization_fit: int = Field(..., ge=0, le=100)
+    competition_gap: int = Field(..., ge=0, le=100)
+    retention_potential: int = Field(..., ge=0, le=100)
+    originality: int = Field(..., ge=0, le=100)
+    production_feasibility: int = Field(..., ge=0, le=100)
+    niche_fit: int = Field(..., ge=0, le=100)
+    confidence: int = Field(..., ge=0, le=100)
+    rationale: str = Field(default="", max_length=3000)
+    risk_flags: List[str] = Field(default_factory=list)
+
+
+class OpportunityAssessmentBatch(BaseModel):
+    assessments: List[OpportunityAssessment] = Field(default_factory=list)
+
+
 class StrategyResult(BaseModel):
     content_angle: str = Field(default="Educational Overview", description="Core perspective or angle for the video")
     target_audience_analysis: str = Field(default="General Tech Enthusiasts", description="Insights on audience preferences")
