@@ -12,7 +12,18 @@ router = APIRouter()
 
 @router.post("/", response_model=Content)
 async def create_content(content: ContentCreate, db: AsyncSession = Depends(get_db)):
-    values = content.model_dump()\n    idea = await db.get(DBContentIdea, values.get("idea_id")) if values.get("idea_id") else None\n    if values.get("idea_id") and idea is None:\n        raise HTTPException(status_code=404, detail="Content idea not found")\n    if idea is not None:\n        if values.get("channel_id") is None:\n            values["channel_id"] = idea.channel_id\n        elif idea.channel_id is not None and values["channel_id"] != idea.channel_id:\n            raise HTTPException(status_code=422, detail="Content channel must match its idea channel")\n    if values.get("channel_id") is not None and await db.get(DBChannel, values["channel_id"]) is None:\n        raise HTTPException(status_code=404, detail="Channel not found")\n    db_content = DBContent(**values)
+    values = content.model_dump()
+    idea = await db.get(DBContentIdea, values.get("idea_id")) if values.get("idea_id") else None
+    if values.get("idea_id") and idea is None:
+        raise HTTPException(status_code=404, detail="Content idea not found")
+    if idea is not None:
+        if values.get("channel_id") is None:
+            values["channel_id"] = idea.channel_id
+        elif idea.channel_id is not None and values["channel_id"] != idea.channel_id:
+            raise HTTPException(status_code=422, detail="Content channel must match its idea channel")
+    if values.get("channel_id") is not None and await db.get(DBChannel, values["channel_id"]) is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    db_content = DBContent(**values)
     db.add(db_content)
     await db.commit()
     await db.refresh(db_content)
