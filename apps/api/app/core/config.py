@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     BRAVE_SEARCH_API_KEY: str = ""
     DISCOVERY_MIN_SCORE: float = 55.0
 
+    # Nightly orchestration safety limits.
+    NIGHTLY_MAX_JOBS_PER_RUN: int = 100
+    NIGHTLY_DISCOVERY_CANDIDATES: int = 30
+
     # Admin key protects destructive/admin-only operations and diagnostics.
     # Leave empty for local development; production must configure it.
     ADMIN_API_KEY: str = ""
