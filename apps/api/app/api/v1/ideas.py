@@ -5,7 +5,7 @@ from typing import List
 import uuid
 
 from app.db.database import get_db
-from app.db.models import ContentIdea as DBContentIdea
+from app.db.models import ContentIdea as DBContentIdea, Channel as DBChannel
 from app.models.schemas import ContentIdea, ContentIdeaCreate, ContentIdeaUpdate
 from app.services.llm_service import LLMService
 from app.core.config import settings
@@ -22,7 +22,7 @@ async def get_available_models():
 
 @router.post("/", response_model=ContentIdea)
 async def create_idea(idea: ContentIdeaCreate, db: AsyncSession = Depends(get_db)):
-    db_idea = DBContentIdea(**idea.model_dump())
+    if idea.channel_id is not None and await db.get(DBChannel, idea.channel_id) is None:\n        raise HTTPException(status_code=404, detail="Channel not found")\n    db_idea = DBContentIdea(**idea.model_dump())
     db.add(db_idea)
     await db.commit()
     await db.refresh(db_idea)
