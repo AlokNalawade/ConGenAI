@@ -41,6 +41,12 @@ class MovieProjectCreate(BaseModel):
 
 
 class MovieProjectUpdate(BaseModel):
+    @field_validator("genre_ids")
+    @classmethod
+    def unique_genres(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return list(dict.fromkeys(item.strip().lower() for item in value if item.strip()))
     title: str | None = Field(default=None, min_length=1, max_length=240)
     logline: str | None = Field(default=None, max_length=2000)
     synopsis: str | None = None
