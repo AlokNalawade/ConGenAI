@@ -1,0 +1,35 @@
+version: 1
+# Defaults for a new project only; users may override every field.
+project:
+  genre_ids: [science_fiction]
+  language: en
+  runtime_minutes: 15
+  format: standalone_short
+  rating_target: parental_guidance
+  visual_style: photorealistic_cinematic
+  resolution: 1080p
+  execution_mode: hybrid
+  approval_mode: manual
+  auto_publish: false
+  budget:
+    currency: CAD
+    max_total: null
+    max_per_shot: null
+  proof_of_concept:
+    enabled: true
+    target_seconds: 90
+    next_gate_minutes: 3
+    required_checks:
+      - character_identity_consistency
+      - shot_to_shot_continuity
+      - dialogue_voice_quality
+      - lip_sync
+      - camera_motion_quality
+
+production:
+  generate_multiple_takes: true
+  default_takes_per_shot: 2
+  max_parallel_shots: 2
+  retry_failed_shot_independently: true
+  preserve_completed_shots: true
+  require_human_final_review: true
