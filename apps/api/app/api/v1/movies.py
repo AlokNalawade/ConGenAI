@@ -145,6 +145,9 @@ async def list_movie_shots(project_id: uuid.UUID, db: AsyncSession = Depends(get
     if await db.get(MovieProject, project_id) is None:
         raise HTTPException(status_code=404, detail="Movie project not found")
     result = await db.execute(
-        select(MovieShot).where(MovieShot.project_id == project_id).order_by(MovieShot.scene_id, MovieShot.shot_number)
+        select(MovieShot)
+        .join(MovieScene, MovieShot.scene_id == MovieScene.id)
+        .where(MovieShot.project_id == project_id)
+        .order_by(MovieScene.scene_number, MovieShot.shot_number)
     )
     return result.scalars().all()
