@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -47,6 +47,7 @@ class MovieProjectUpdate(BaseModel):
         if value is None:
             return None
         return list(dict.fromkeys(item.strip().lower() for item in value if item.strip()))
+
     title: str | None = Field(default=None, min_length=1, max_length=240)
     logline: str | None = Field(default=None, max_length=2000)
     synopsis: str | None = None
@@ -105,3 +106,58 @@ class MovieShotCreate(BaseModel):
     character_refs: list[str] = Field(default_factory=list)
     prop_refs: list[str] = Field(default_factory=list)
     continuity: dict[str, Any] = Field(default_factory=dict)
+
+
+class MovieCharacterCreate(BaseModel):
+    character_key: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=200)
+    role: str | None = Field(default=None, max_length=80)
+    description: str | None = None
+    visual_identity: dict[str, Any] = Field(default_factory=dict)
+    wardrobe: dict[str, Any] = Field(default_factory=dict)
+    voice_profile: dict[str, Any] = Field(default_factory=dict)
+    continuity_rules: dict[str, Any] = Field(default_factory=dict)
+    reference_asset_ids: list[str] = Field(default_factory=list)
+
+
+class MovieLocationCreate(BaseModel):
+    location_key: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    visual_identity: dict[str, Any] = Field(default_factory=dict)
+    set_dressing: dict[str, Any] = Field(default_factory=dict)
+    lighting_rules: dict[str, Any] = Field(default_factory=dict)
+    continuity_rules: dict[str, Any] = Field(default_factory=dict)
+    reference_asset_ids: list[str] = Field(default_factory=list)
+
+
+class MovieAssetBibleCreate(BaseModel):
+    asset_key: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    asset_type: Literal["prop", "vehicle", "costume", "creature", "set_piece", "other"]
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    visual_identity: dict[str, Any] = Field(default_factory=dict)
+    reference_uri: str | None = Field(default=None, max_length=2000)
+    continuity_rules: dict[str, Any] = Field(default_factory=dict)
+
+
+class MovieStoryDocumentCreate(BaseModel):
+    document_type: Literal["outline", "treatment", "screenplay", "scene_breakdown", "storyboard"]
+    version: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=240)
+    content_text: str = ""
+    structured_content: dict[str, Any] = Field(default_factory=dict)
+    status: Literal["draft", "in_review", "approved", "superseded"] = "draft"
+
+
+class MovieStoryDocumentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    project_id: UUID
+    document_type: str
+    version: int
+    title: str
+    content_text: str
+    structured_content: dict[str, Any]
+    status: str
+    created_at: datetime
