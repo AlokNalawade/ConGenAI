@@ -6,7 +6,7 @@ from typing import Any
 import yaml
 
 
-REGISTRY_PATH = Path(__file__).resolve().parents[3] / "config" / "movie_genres" / "registry.yaml"
+REGISTRY_PATH = Path(__file__).resolve().parents[4] / "config" / "movie_genres" / "registry.yaml"
 
 
 @lru_cache(maxsize=1)
