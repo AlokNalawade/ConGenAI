@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from app.core.config import settings
-from app.api.v1 import ideas, content, research, scripts, scenes, assets, video, pipeline, experiments
+from app.api.v1 import ideas, content, research, scripts, scenes, assets, video, pipeline, experiments, movies
 
 
 @asynccontextmanager
@@ -67,7 +67,7 @@ app.include_router(scripts.router, prefix=f"{settings.API_V1_STR}/content/{{cont
 app.include_router(scenes.router, prefix=f"{settings.API_V1_STR}/content/{{content_id}}/scenes", tags=["scenes"])
 app.include_router(assets.router, prefix=f"{settings.API_V1_STR}", tags=["assets"])
 app.include_router(video.router, prefix=f"{settings.API_V1_STR}/content/{{content_id}}/video", tags=["video"])
-app.include_router(experiments.router, prefix=f"{settings.API_V1_STR}/experiments", tags=["experiments"])
+app.include_router(experiments.router, prefix=f"{settings.API_V1_STR}/experiments", tags=["experiments"])\napp.include_router(movies.router, prefix=f"{settings.API_V1_STR}/movies", tags=["movies"])
 
 
 from app.core.logging import log_manager
