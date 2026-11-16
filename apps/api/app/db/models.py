@@ -310,3 +310,8 @@ class Experiment(Base):
     winner = Column(String, nullable=True)
     status = Column(String, default="running")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# Register the independent Movie Studio tables on shared Base.metadata.
+# Importing here ensures Alembic and test metadata discovery include these models.
+from app.db import movie_models as _movie_models  # noqa: E402,F401

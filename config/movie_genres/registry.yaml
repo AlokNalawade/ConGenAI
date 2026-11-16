@@ -1,0 +1,106 @@
+version: 1
+default_profile: neutral
+allow_custom_genres: true
+allow_hybrid_genres: true
+
+profiles:
+  - id: neutral
+    label: General / unclassified
+    guidance:
+      narrative: "Prioritize a coherent premise, motivated characters, clear stakes and satisfying resolution."
+      visual: "Use a consistent visual language appropriate to the approved project brief."
+      sound: "Use dialogue, ambience, effects and music to support the scene without masking speech."
+    review_checks:
+      - story_coherence
+      - character_motivation
+      - visual_continuity
+      - dialogue_intelligibility
+      - technical_media_integrity
+
+  - id: science_fiction
+    label: Science Fiction
+    guidance:
+      narrative: "Make speculative rules understandable and consistent; ground spectacle in character stakes."
+      visual: "Track technology design, scale, interfaces, materials and world-building details."
+      sound: "Use a coherent sonic identity for technology, environments and non-human elements."
+    review_checks: [world_rule_consistency, technology_continuity, visual_continuity, technical_media_integrity]
+
+  - id: horror
+    label: Horror
+    guidance:
+      narrative: "Build dread through anticipation, controlled reveals, vulnerability and escalating stakes."
+      visual: "Use composition, negative space, lighting and restrained reveals to create atmosphere."
+      sound: "Treat silence, ambience, perspective and transient effects as deliberate storytelling tools."
+    review_checks: [tension_arc, reveal_clarity, atmosphere_consistency, audio_dynamic_range]
+
+  - id: thriller
+    label: Thriller
+    guidance:
+      narrative: "Maintain causal momentum, legible clues, escalating pressure and fair reversals."
+      visual: "Use framing and editing to manage information and audience alignment."
+      sound: "Use rhythm and restrained motifs to reinforce urgency without obscuring clues."
+    review_checks: [clue_consistency, timeline_consistency, reveal_fairness, pacing]
+
+  - id: action
+    label: Action
+    guidance:
+      narrative: "Keep objectives, geography, reversals and consequences clear during set pieces."
+      visual: "Prioritize readable choreography, screen direction, spatial continuity and motivated camera movement."
+      sound: "Align impacts and movement effects to visible action; preserve dialogue clarity."
+    review_checks: [action_geography, screen_direction, impact_sync, stunt_safety_review]
+
+  - id: comedy
+    label: Comedy
+    guidance:
+      narrative: "Build setups and payoffs; preserve character logic and allow beats to land."
+      visual: "Favor readable reactions, eyelines, timing and purposeful holds."
+      sound: "Protect pauses, dialogue rhythm and reaction timing."
+    review_checks: [setup_payoff, timing, reaction_coverage, dialogue_clarity]
+
+  - id: historical
+    label: Historical
+    guidance:
+      narrative: "Separate documented facts from invention and avoid presenting uncertain details as established fact."
+      visual: "Check period-specific clothing, objects, architecture, transport, typography and social context."
+      sound: "Use period-appropriate musical and environmental choices where supported by research."
+    review_checks: [historical_fact_check, period_costume_check, architecture_check, anachronism_check]
+
+  - id: mythology
+    label: Mythology
+    guidance:
+      narrative: "Respect source traditions, distinguish adaptation from attested tradition and preserve cultural context."
+      visual: "Research iconography, clothing, architecture, objects and sacred/cultural symbols."
+      sound: "Use culturally informed musical choices and avoid generic stereotypes."
+    review_checks: [source_tradition_check, cultural_context_review, iconography_review]
+
+  - id: romance_drama
+    label: Romance / Drama
+    guidance:
+      narrative: "Prioritize emotional causality, relationship development, subtext and earned character change."
+      visual: "Use performance, blocking, eyelines and visual motifs to communicate emotional shifts."
+      sound: "Preserve nuanced performances and dialogue intimacy."
+    review_checks: [relationship_arc, emotional_continuity, performance_quality, dialogue_clarity]
+
+  - id: fantasy
+    label: Fantasy
+    guidance:
+      narrative: "Establish understandable magic/world rules and meaningful costs or limits."
+      visual: "Maintain consistent creature anatomy, costume, magical effects and environmental logic."
+      sound: "Create distinct sonic identities for places, creatures and magical systems."
+    review_checks: [magic_rule_consistency, creature_continuity, world_consistency]
+
+  - id: documentary
+    label: Documentary
+    guidance:
+      narrative: "Build a verifiable argument or observational arc; distinguish fact, interpretation and uncertainty."
+      visual: "Label illustrative or generated reconstructions; do not imply synthetic footage is archival evidence."
+      sound: "Keep narration faithful to sources and preserve interview context."
+    review_checks: [claim_source_traceability, quote_accuracy, reconstruction_labeling, factual_review]
+
+  - id: animation
+    label: Animation
+    guidance:
+      narrative: "Design action and performance for the chosen animation medium and audience."
+      visual: "Maintain model sheets, proportions, palettes, rig constraints and motion principles."
+      sound: "Synchronize dialogue, effects and musical beats with animated performance."
+    review_checks: [model_sheet_consistency, motion_continuity, lip_sync, render_integrity]
