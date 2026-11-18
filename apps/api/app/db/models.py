@@ -470,3 +470,21 @@ class Experiment(Base):
     winner = Column(String, nullable=True)
     status = Column(String, default="running")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReviewAudit(Base):
+    """Immutable record of a human editorial decision."""
+    __tablename__ = "review_audits"
+    __table_args__ = (
+        Index("ix_review_audits_content_created", "content_id", "created_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_id = Column(UUID(as_uuid=True), ForeignKey("content.id", ondelete="CASCADE"), nullable=False)
+    pipeline_run_id = Column(UUID(as_uuid=True), ForeignKey("pipeline_runs.id", ondelete="SET NULL"), nullable=True)
+    decision = Column(String(16), nullable=False)
+    reviewer = Column(String(160), nullable=True)
+    note = Column(String(2000), nullable=True)
+    previous_state = Column(String(64), nullable=False)
+    new_state = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
