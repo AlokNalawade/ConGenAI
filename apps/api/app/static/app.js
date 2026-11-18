@@ -1575,6 +1575,15 @@ function renderReviewCard(video) {
     player.preload = 'metadata';
     player.style.cssText = 'width:100%;max-height:360px;background:#000;border-radius:10px;margin-bottom:12px;';
     player.src = getAssetUrl(video.video?.path);
+    player.addEventListener('error', () => {
+        const warning = document.createElement('p');
+        warning.textContent = 'Preview unavailable: the video file could not be loaded. Check the asset path and media server.';
+        warning.style.cssText = 'color:#fdcb6e;font-size:12px;margin:0 0 12px;';
+        if (!card.querySelector('.review-video-error')) {
+            warning.className = 'review-video-error';
+            player.insertAdjacentElement('afterend', warning);
+        }
+    });
     card.appendChild(player);
 
     const title = document.createElement('h3');
@@ -1605,6 +1614,15 @@ function renderReviewCard(video) {
         const research = document.createElement('p');
         research.textContent = video.research.summary || 'No research summary stored.';
         body.appendChild(research);
+        if (Array.isArray(video.research.key_points) && video.research.key_points.length) {
+            const points = document.createElement('ul');
+            video.research.key_points.forEach(point => {
+                const item = document.createElement('li');
+                item.textContent = typeof point === 'string' ? point : JSON.stringify(point);
+                points.appendChild(item);
+            });
+            body.appendChild(points);
+        }
         (video.research.warnings || []).forEach(warning => {
             const p = document.createElement('p');
             p.style.color = '#fdcb6e';
