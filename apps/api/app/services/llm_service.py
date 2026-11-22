@@ -14,23 +14,20 @@ class LLMService:
         self.default_model = settings.DEFAULT_MODEL or settings.LLM_DEFAULT_MODEL
 
     async def _resolve_model(self, model: str) -> str:
+        """Resolve only the requested model; never silently substitute another model."""
         target = model or self.default_model
         try:
             models_page = await self.client.models.list()
-            available = [m.id for m in models_page.data]
-            if not available:
-                return target
-            if target in available:
-                return target
-            for m in available:
-                if "llama3" in m.lower():
-                    return m
-            for m in available:
-                if "llama" in m.lower():
-                    return m
-            return available[0]
-        except Exception:
-            return target
+        except Exception as exc:
+            raise RuntimeError("Unable to query the configured local LLM server for available models") from exc
+
+        available = [m.id for m in models_page.data]
+        if target not in available:
+            raise RuntimeError(
+                f"Requested model '{target}' is not available. "
+                f"Available models: {', '.join(available) if available else '(none)'}"
+            )
+        return target
 
     async def get_available_models(self) -> list[str]:
         try:
